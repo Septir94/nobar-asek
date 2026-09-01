@@ -3,23 +3,23 @@
  *
  * Listens for 'reaction' socket events.
  * Plays audio matched to the reaction type:
- *   - 'clap'   → /sound/clap-sound.mp3 (custom sound)
- *   - 'laugh'  → /sound/evil-laugh.mp3 (custom sound)
- *   - 'wow'    → synthesized tone
- *   - 'heart'  → synthesized tone
- *   - 'fire'   → synthesized tone
+ *   - 'clap'   → /sound/applause-2.mp3 (custom sound)
+ *   - 'heart'  → /sound/kiss-2.mp3     (custom sound)
+ *   - 'laugh'  → /sound/laugh-2.mp3    (custom sound)
+ *   - 'wow'    → /sound/wow-video.mp3  (custom sound)
+ *   - 'fire'   → synthesized energetic tone
  * Spawns floating emoji particles that auto-remove after the animation ends.
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 
-// Reaction definitions
+// Reaction definitions with custom audio files and emoji mappings
 const REACTION_DEFS = {
-  clap:  { emoji: '👏', soundFile: '/sound/clap-sound.mp3' },
-  laugh: { emoji: '😂', soundFile: '/sound/evil-laugh.mp3' },
-  wow:   { emoji: '😮', freq: 600,  type: 'sine',     duration: 0.28, repeats: 1 },
-  heart: { emoji: '❤️', freq: 440,  type: 'sine',     duration: 0.40, repeats: 1 },
-  fire:  { emoji: '🔥', freq: 320,  type: 'sawtooth', duration: 0.08, repeats: 4 },
+  clap:  { emoji: '👏', soundFile: '/sound/applause-2.mp3' },
+  heart: { emoji: '❤️', soundFile: '/sound/kiss-2.mp3' },
+  laugh: { emoji: '😂', soundFile: '/sound/laugh-2.mp3' },
+  wow:   { emoji: '😮', soundFile: '/sound/wow-video.mp3' },
+  fire:  { emoji: '🔥', freq: 320, type: 'sawtooth', duration: 0.08, repeats: 4 },
 };
 
 let audioCtx = null;
@@ -38,7 +38,7 @@ function getAudioCtx() {
 function playAudioFile(url) {
   try {
     const audio = new Audio(url);
-    audio.volume = 0.8;
+    audio.volume = 0.85;
     const playPromise = audio.play();
     if (playPromise !== undefined) {
       playPromise.catch((err) => {
@@ -57,13 +57,13 @@ function playReactionSound(type) {
   const def = REACTION_DEFS[type];
   if (!def) return;
 
-  // Custom audio files for clap and laugh
+  // Custom audio files
   if (def.soundFile) {
     playAudioFile(def.soundFile);
     return;
   }
 
-  // Synthesizer for other reactions
+  // Synthesizer for other reactions (e.g. fire)
   if (def.freq) {
     const { freq, type: oscType, duration, repeats } = def;
 
