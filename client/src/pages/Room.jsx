@@ -8,6 +8,7 @@
  * Features:
  * - Camera toggle (on/off with avatar placeholder)
  * - Window-hint screen share with optional system audio
+ * - Host live screen share preview
  * - Sound reactions (👏😮😂❤️🔥) with floating particles
  * - Voice sticker (TTS + floating text badge)
  * - Late-joiner screen share sync (server tracks active sharer)
@@ -44,6 +45,7 @@ export default function Room() {
   const [activeScreenShare, setActiveScreenShare] = useState(null); // { socketId, isLocal? }
   const [includeScreenAudio, setIncludeScreenAudio] = useState(true); // toggle default ON
   const screenVideoRef = useRef(null);
+  const hostScreenVideoRef = useRef(null);
 
   // Socket kept in state so hooks re-render when socket is ready
   const [socket, setSocket] = useState(null);
@@ -86,10 +88,7 @@ export default function Room() {
 
         setSocketReady(true);
 
-        // Process existing users from callback (NOT from socket event)
-        // This runs synchronously after setSocketReady so the WebRTC hook
-        // knows to start media, and processExistingUsers buffers peers
-        // until the local stream is ready.
+        // Process existing users from callback
         if (res?.existingUsers && processExistingUsersRef.current) {
           processExistingUsersRef.current(res.existingUsers);
         }
@@ -98,6 +97,7 @@ export default function Room() {
         if (res?.activeScreenSharer) {
           setActiveScreenShare({
             socketId: res.activeScreenSharer.socketId,
+            isLocal: res.activeScreenSharer.socketId === sock.id,
           });
         }
       });
@@ -110,8 +110,12 @@ export default function Room() {
     }
 
     const onStartScreenShare = ({ fromSocketId }) => {
-      setActiveScreenShare({ socketId: fromSocketId });
+      setActiveScreenShare({
+        socketId: fromSocketId,
+        isLocal: fromSocketId === socketRef.current?.id,
+      });
     };
+
     const onStopScreenShare = () => {
       setActiveScreenShare(null);
       setRemoteScreenStream(null);
@@ -132,13 +136,13 @@ export default function Room() {
   const {
     localStream,
     remoteStreams,
-    remoteScreenStreams,
     micEnabled,
     toggleMic,
     cameraEnabled,
     toggleCamera,
     remoteCameraStates,
     isSharingScreen,
+    screenStream,
     screenAudioEnabled,
     startScreenShare,
     stopScreenShare,
@@ -175,22 +179,38 @@ export default function Room() {
 
   // ── Bind remote screen stream ───────────────────────────────────────────
   useEffect(() => {
-    if (!activeScreenShare || activeScreenShare.isLocal) return;
+    if (!activeScreenShare || activeScreenShare.isLocal) {
+      setRemoteScreenStream(null);
+      return;
+    }
     const sid = activeScreenShare.socketId;
-    const screenSt = remoteScreenStreams[sid] || remoteStreams[sid]?.stream || null;
+    const screenSt = remoteStreams[sid]?.stream || null;
     setRemoteScreenStream(screenSt);
-  }, [activeScreenShare, remoteScreenStreams, remoteStreams]);
+  }, [activeScreenShare, remoteStreams]);
 
-  // ── Bind screen video element ─────────────────────────────────────────────
+  // ── Bind remote screen video element ─────────────────────────────────────
   useEffect(() => {
     const el = screenVideoRef.current;
     if (!el) return;
-    el.srcObject = null;
     el.srcObject = remoteScreenStream || null;
     if (remoteScreenStream) {
-      el.play().catch(() => {});
+      el.play().catch((err) => {
+        console.warn('[screen-share] Play remote screen video error:', err);
+      });
     }
   }, [remoteScreenStream]);
+
+  // ── Bind host screen preview video element ───────────────────────────────
+  useEffect(() => {
+    const el = hostScreenVideoRef.current;
+    if (!el) return;
+    el.srcObject = screenStream || null;
+    if (screenStream) {
+      el.play().catch((err) => {
+        console.warn('[screen-share] Play host preview video error:', err);
+      });
+    }
+  }, [screenStream, isSharingScreen]);
 
   // ── Leave ───────────────────────────────────────────────────────────────
   const handleLeave = useCallback(() => {
@@ -200,7 +220,11 @@ export default function Room() {
   }, [navigate]);
 
   const handleFullscreen = () => {
-    screenVideoRef.current?.requestFullscreen?.();
+    if (activeScreenShare?.isLocal) {
+      hostScreenVideoRef.current?.requestFullscreen?.();
+    } else {
+      screenVideoRef.current?.requestFullscreen?.();
+    }
   };
 
   // ── Start screen share with audio toggle ────────────────────────────────
@@ -263,10 +287,24 @@ export default function Room() {
                   <div className="room__screen-main">
                     {activeScreenShare?.isLocal ? (
                       <div className="room__screen-video-wrap">
-                        <div className="room__screen-label">
-                          📺 You are sharing your screen
-                          {screenAudioEnabled && ' 🔊 with audio'}
+                        <video
+                          ref={hostScreenVideoRef}
+                          autoPlay
+                          playsInline
+                          muted
+                          className="room__screen-video"
+                        />
+                        <div className="room__screen-badge">
+                          <span>📺 Sharing your screen (Preview)</span>
+                          {screenAudioEnabled && <span>🔊 with audio</span>}
                         </div>
+                        <button
+                          className="room__fullscreen-btn"
+                          onClick={handleFullscreen}
+                          title="Fullscreen"
+                        >
+                          ⛶
+                        </button>
                       </div>
                     ) : (
                       <div className="room__screen-video-wrap">
@@ -304,6 +342,7 @@ export default function Room() {
                         key={sid}
                         stream={stream}
                         displayName={dn}
+                        muted={isScreenShareMode && sid === activeScreenShare?.socketId}
                         cameraOn={remoteCameraStates[sid] !== false}
                         className="video-tile--thumbnail"
                       />
