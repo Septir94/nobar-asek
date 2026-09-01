@@ -8,10 +8,11 @@
  * Features:
  * - Camera toggle (on/off with avatar placeholder)
  * - Window-hint screen share with optional system audio
- * - Host live screen share preview
+ * - Host live screen share preview with ScreenVideo component
  * - Sound reactions (👏😮😂❤️🔥) with floating particles
  * - Voice sticker (TTS + floating text badge)
  * - Late-joiner screen share sync (server tracks active sharer)
+ * - Mobile chat with close button and history back navigation handling
  * - Responsive mobile layout
  */
 
@@ -23,6 +24,7 @@ import { useChat } from '../hooks/useChat.js';
 import { useReactions } from '../hooks/useReactions.js';
 import { useVoiceSticker } from '../hooks/useVoiceSticker.js';
 import VideoTile from '../components/VideoTile.jsx';
+import ScreenVideo from '../components/ScreenVideo.jsx';
 import ChatPanel from '../components/ChatPanel.jsx';
 import RoomControls from '../components/RoomControls.jsx';
 import ReactionBar from '../components/ReactionBar.jsx';
@@ -44,8 +46,7 @@ export default function Room() {
   const [chatOpen, setChatOpen] = useState(false);
   const [activeScreenShare, setActiveScreenShare] = useState(null); // { socketId, isLocal? }
   const [includeScreenAudio, setIncludeScreenAudio] = useState(true); // toggle default ON
-  const screenVideoRef = useRef(null);
-  const hostScreenVideoRef = useRef(null);
+  const screenWrapRef = useRef(null);
 
   // Socket kept in state so hooks re-render when socket is ready
   const [socket, setSocket] = useState(null);
@@ -188,29 +189,37 @@ export default function Room() {
     setRemoteScreenStream(screenSt);
   }, [activeScreenShare, remoteStreams]);
 
-  // ── Bind remote screen video element ─────────────────────────────────────
+  // ── Mobile back button handling for chat ─────────────────────────────────
   useEffect(() => {
-    const el = screenVideoRef.current;
-    if (!el) return;
-    el.srcObject = remoteScreenStream || null;
-    if (remoteScreenStream) {
-      el.play().catch((err) => {
-        console.warn('[screen-share] Play remote screen video error:', err);
-      });
-    }
-  }, [remoteScreenStream]);
+    if (!chatOpen) return;
 
-  // ── Bind host screen preview video element ───────────────────────────────
-  useEffect(() => {
-    const el = hostScreenVideoRef.current;
-    if (!el) return;
-    el.srcObject = screenStream || null;
-    if (screenStream) {
-      el.play().catch((err) => {
-        console.warn('[screen-share] Play host preview video error:', err);
-      });
+    // Push state when chat opens so hardware/browser back closes chat instead of leaving room
+    window.history.pushState({ chatOpen: true }, '');
+
+    const handlePopState = () => {
+      setChatOpen(false);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [chatOpen]);
+
+  const handleCloseChat = useCallback(() => {
+    setChatOpen(false);
+    if (window.history.state?.chatOpen) {
+      window.history.back();
     }
-  }, [screenStream, isSharingScreen]);
+  }, []);
+
+  const handleToggleChat = useCallback(() => {
+    if (chatOpen) {
+      handleCloseChat();
+    } else {
+      setChatOpen(true);
+    }
+  }, [chatOpen, handleCloseChat]);
 
   // ── Leave ───────────────────────────────────────────────────────────────
   const handleLeave = useCallback(() => {
@@ -220,10 +229,12 @@ export default function Room() {
   }, [navigate]);
 
   const handleFullscreen = () => {
-    if (activeScreenShare?.isLocal) {
-      hostScreenVideoRef.current?.requestFullscreen?.();
-    } else {
-      screenVideoRef.current?.requestFullscreen?.();
+    if (screenWrapRef.current) {
+      if (document.fullscreenElement) {
+        document.exitFullscreen?.();
+      } else {
+        screenWrapRef.current.requestFullscreen?.();
+      }
     }
   };
 
@@ -285,44 +296,36 @@ export default function Room() {
               {isScreenShareMode && (
                 <div className="room__screenshare-layout">
                   <div className="room__screen-main">
-                    {activeScreenShare?.isLocal ? (
-                      <div className="room__screen-video-wrap">
-                        <video
-                          ref={hostScreenVideoRef}
-                          autoPlay
-                          playsInline
-                          muted
+                    <div ref={screenWrapRef} className="room__screen-video-wrap">
+                      {activeScreenShare?.isLocal ? (
+                        <>
+                          <ScreenVideo
+                            stream={screenStream}
+                            muted={true}
+                            className="room__screen-video"
+                          />
+                          <div className="room__screen-badge">
+                            <span>📺 Sharing your screen (Preview)</span>
+                            {screenAudioEnabled && <span>🔊 with audio</span>}
+                          </div>
+                        </>
+                      ) : (
+                        <ScreenVideo
+                          stream={remoteScreenStream}
+                          muted={false}
                           className="room__screen-video"
                         />
-                        <div className="room__screen-badge">
-                          <span>📺 Sharing your screen (Preview)</span>
-                          {screenAudioEnabled && <span>🔊 with audio</span>}
-                        </div>
-                        <button
-                          className="room__fullscreen-btn"
-                          onClick={handleFullscreen}
-                          title="Fullscreen"
-                        >
-                          ⛶
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="room__screen-video-wrap">
-                        <video
-                          ref={screenVideoRef}
-                          autoPlay
-                          playsInline
-                          className="room__screen-video"
-                        />
-                        <button
-                          className="room__fullscreen-btn"
-                          onClick={handleFullscreen}
-                          title="Fullscreen"
-                        >
-                          ⛶
-                        </button>
-                      </div>
-                    )}
+                      )}
+
+                      <button
+                        className="room__fullscreen-btn"
+                        onClick={handleFullscreen}
+                        title="Fullscreen"
+                        type="button"
+                      >
+                        ⛶
+                      </button>
+                    </div>
                   </div>
 
                   {/* Thumbnail strip */}
@@ -384,6 +387,7 @@ export default function Room() {
               messages={messages}
               onSend={sendMessage}
               currentUserId={userId}
+              onClose={handleCloseChat}
             />
           </div>
         )}
@@ -408,7 +412,7 @@ export default function Room() {
         isHost={isHost}
         onLeave={handleLeave}
         chatOpen={chatOpen}
-        onToggleChat={() => setChatOpen((v) => !v)}
+        onToggleChat={handleToggleChat}
         includeScreenAudio={includeScreenAudio}
         onToggleScreenAudio={() => setIncludeScreenAudio((v) => !v)}
         screenAudioEnabled={screenAudioEnabled}

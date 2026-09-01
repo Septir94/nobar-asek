@@ -450,11 +450,8 @@ export function useWebRTC(socket, enabled) {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: {
-          displaySurface: 'window',
-          selfBrowserSurface: 'exclude',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 30 },
+          cursor: 'always',
+          frameRate: { ideal: 30, max: 60 },
         },
         audio: includeAudio ? {
           echoCancellation: false,

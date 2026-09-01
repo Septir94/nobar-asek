@@ -9,7 +9,7 @@ import { useState, useRef, useEffect } from 'react';
 import EmojiPicker from 'emoji-picker-react';
 import './ChatPanel.css';
 
-export default function ChatPanel({ messages, onSend, currentUserId }) {
+export default function ChatPanel({ messages, onSend, currentUserId, onClose }) {
   const [text, setText] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
   const messagesEndRef = useRef(null);
@@ -59,6 +59,17 @@ export default function ChatPanel({ messages, onSend, currentUserId }) {
     <div className="chat-panel">
       <div className="chat-panel__header">
         <span className="chat-panel__title">💬 Chat</span>
+        {onClose && (
+          <button
+            className="chat-panel__close-btn"
+            onClick={onClose}
+            title="Close chat"
+            type="button"
+            aria-label="Close chat"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       <div className="chat-panel__messages">
