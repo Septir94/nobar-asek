@@ -98,6 +98,39 @@
   border-color: rgba(239, 68, 68, 0.45);
 }
 
+/* Button group — screen share + audio toggle side by side */
+.ctrl-btn-group {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+}
+
+/* Small variant for audio toggle */
+.ctrl-btn--small {
+  min-width: 48px;
+  padding: 0.4rem 0.5rem;
+}
+
+.ctrl-btn--small .ctrl-btn__icon {
+  font-size: 1rem;
+}
+
+.ctrl-btn--small .ctrl-btn__label {
+  font-size: 0.55rem;
+}
+
+/* Muted state (audio off) */
+.ctrl-btn--muted {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.ctrl-btn--muted:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.6);
+}
+
 /* ── Mobile responsive ────────────────────────────────────────────── */
 @media (max-width: 639px) {
   .room-controls {

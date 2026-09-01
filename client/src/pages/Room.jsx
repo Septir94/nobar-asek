@@ -5,11 +5,12 @@
  * - Normal: CSS grid of all video tiles (local + remotes), equal size
  * - Screen share active: screen video large/center + participant thumbnails strip at bottom
  *
- * Phase 3 additions:
+ * Features:
  * - Camera toggle (on/off with avatar placeholder)
- * - Window-hint screen share
+ * - Window-hint screen share with optional system audio
  * - Sound reactions (👏😮😂❤️🔥) with floating particles
  * - Voice sticker (TTS + floating text badge)
+ * - Late-joiner screen share sync (server tracks active sharer)
  * - Responsive mobile layout
  */
 
@@ -41,6 +42,7 @@ export default function Room() {
   const [joinError, setJoinError] = useState('');
   const [chatOpen, setChatOpen] = useState(false);
   const [activeScreenShare, setActiveScreenShare] = useState(null); // { socketId, isLocal? }
+  const [includeScreenAudio, setIncludeScreenAudio] = useState(true); // toggle default ON
   const screenVideoRef = useRef(null);
 
   // Socket kept in state so hooks re-render when socket is ready
@@ -50,9 +52,9 @@ export default function Room() {
   // Screen share stream from remote peer
   const [remoteScreenStream, setRemoteScreenStream] = useState(null);
 
-  // setIceConfig arrives after useWebRTC is called — keep in a ref so the
-  // socket effect can call it without stale closure issues
+  // setIceConfig & processExistingUsers arrive after useWebRTC is called
   const setIceConfigRef = useRef(null);
+  const processExistingUsersRef = useRef(null);
 
   // ── Init socket & join room ─────────────────────────────────────────────
   useEffect(() => {
@@ -76,10 +78,28 @@ export default function Room() {
           setJoinError(res.error);
           return;
         }
+
+        // Set ICE config from TURN credentials
         if (res?.iceServers && setIceConfigRef.current) {
           setIceConfigRef.current(res.iceServers);
         }
+
         setSocketReady(true);
+
+        // Process existing users from callback (NOT from socket event)
+        // This runs synchronously after setSocketReady so the WebRTC hook
+        // knows to start media, and processExistingUsers buffers peers
+        // until the local stream is ready.
+        if (res?.existingUsers && processExistingUsersRef.current) {
+          processExistingUsersRef.current(res.existingUsers);
+        }
+
+        // If someone is already screen sharing when we join, show it
+        if (res?.activeScreenSharer) {
+          setActiveScreenShare({
+            socketId: res.activeScreenSharer.socketId,
+          });
+        }
       });
     };
 
@@ -112,22 +132,28 @@ export default function Room() {
   const {
     localStream,
     remoteStreams,
-    remoteScreenStreams,  // NEW: dedicated screen share streams per socketId
+    remoteScreenStreams,
     micEnabled,
     toggleMic,
     cameraEnabled,
     toggleCamera,
     remoteCameraStates,
     isSharingScreen,
+    screenAudioEnabled,
     startScreenShare,
     stopScreenShare,
     setIceConfig,
+    processExistingUsers,
   } = useWebRTC(socket, socketReady);
 
-  // Sync setIceConfig into the ref so the socket effect can call it
+  // Sync refs so the socket effect can call them
   useEffect(() => {
     setIceConfigRef.current = setIceConfig;
   }, [setIceConfig]);
+
+  useEffect(() => {
+    processExistingUsersRef.current = processExistingUsers;
+  }, [processExistingUsers]);
 
   // ── Chat hook ───────────────────────────────────────────────────────────
   const { messages, sendMessage } = useChat(socket);
@@ -148,28 +174,21 @@ export default function Room() {
   }, [isSharingScreen]);
 
   // ── Bind remote screen stream ───────────────────────────────────────────
-  // Use dedicated remoteScreenStreams from WebRTC hook (populated via renegotiation
-  // + ontrack). Fall back to the camera stream only if no dedicated screen stream
-  // is available yet (handles slow renegotiation).
   useEffect(() => {
     if (!activeScreenShare || activeScreenShare.isLocal) return;
     const sid = activeScreenShare.socketId;
-    // Prefer dedicated screen stream; fall back to camera stream
     const screenSt = remoteScreenStreams[sid] || remoteStreams[sid]?.stream || null;
     setRemoteScreenStream(screenSt);
   }, [activeScreenShare, remoteScreenStreams, remoteStreams]);
 
   // ── Bind screen video element ─────────────────────────────────────────────
-  // Force a null-then-set cycle to guarantee browser re-reads the srcObject
-  // even when the stream object reference is reused.
   useEffect(() => {
     const el = screenVideoRef.current;
     if (!el) return;
-    // Force re-bind to trigger browser video reload
     el.srcObject = null;
     el.srcObject = remoteScreenStream || null;
     if (remoteScreenStream) {
-      el.play().catch(() => {}); // autoplay might need nudging
+      el.play().catch(() => {});
     }
   }, [remoteScreenStream]);
 
@@ -183,6 +202,11 @@ export default function Room() {
   const handleFullscreen = () => {
     screenVideoRef.current?.requestFullscreen?.();
   };
+
+  // ── Start screen share with audio toggle ────────────────────────────────
+  const handleStartScreenShare = useCallback(() => {
+    startScreenShare(includeScreenAudio);
+  }, [startScreenShare, includeScreenAudio]);
 
   const isScreenShareMode = !!activeScreenShare;
   const remoteEntries = Object.entries(remoteStreams);
@@ -239,7 +263,10 @@ export default function Room() {
                   <div className="room__screen-main">
                     {activeScreenShare?.isLocal ? (
                       <div className="room__screen-video-wrap">
-                        <div className="room__screen-label">📺 You are sharing your screen</div>
+                        <div className="room__screen-label">
+                          📺 You are sharing your screen
+                          {screenAudioEnabled && ' 🔊 with audio'}
+                        </div>
                       </div>
                     ) : (
                       <div className="room__screen-video-wrap">
@@ -337,12 +364,15 @@ export default function Room() {
         cameraEnabled={cameraEnabled}
         onToggleCamera={toggleCamera}
         isSharingScreen={isSharingScreen}
-        onStartScreenShare={startScreenShare}
+        onStartScreenShare={handleStartScreenShare}
         onStopScreenShare={stopScreenShare}
         isHost={isHost}
         onLeave={handleLeave}
         chatOpen={chatOpen}
         onToggleChat={() => setChatOpen((v) => !v)}
+        includeScreenAudio={includeScreenAudio}
+        onToggleScreenAudio={() => setIncludeScreenAudio((v) => !v)}
+        screenAudioEnabled={screenAudioEnabled}
       />
     </div>
   );

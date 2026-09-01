@@ -8,6 +8,9 @@
  *
  * In-memory room socket registry (socketRooms map) tracks {socketId → {roomCode, userId}}.
  * This supplements Redis room state with fast socket-level lookups.
+ *
+ * Screen share state is tracked per-room so late joiners immediately see
+ * the active screen share.
  */
 
 import { verifyTokenRaw } from '../middleware/auth.js';
@@ -16,6 +19,9 @@ import { generateTurnCredentials } from '../utils/turn.js';
 
 // Map: socketId → { roomCode, userId, displayName }
 const socketRooms = new Map();
+
+// Track active screen sharer per room: roomCode → { socketId, userId, displayName }
+const activeScreenSharers = new Map();
 
 /**
  * Returns all socket entries in a given room.
@@ -73,6 +79,9 @@ export function registerSocketHandlers(io) {
 
     // ── join-room ──────────────────────────────────────────────────────────────
     // Client emits this immediately after connecting.
+    // IMPORTANT: existingUsers are returned IN THE CALLBACK (not as a separate
+    // event) so the client can process them synchronously after setting up
+    // event handlers — preventing the race condition where the event was missed.
     socket.on('join-room', async (_, callback) => {
       try {
         // Re-validate room still exists and has capacity
@@ -85,12 +94,9 @@ export function registerSocketHandlers(io) {
         socket.join(roomCode);
 
         // Get existing members (exclude current socket)
-        const existing = getRoomSockets(roomCode)
+        const existingUsers = getRoomSockets(roomCode)
           .filter((m) => m.socketId !== socket.id)
           .map((m) => ({ socketId: m.socketId, userId: m.userId, displayName: m.displayName }));
-
-        // Send existing users to the new joiner → they will initiate offers
-        socket.emit('existing-users', existing);
 
         // Broadcast to others that a new user joined
         socket.to(roomCode).emit('user-joined', {
@@ -102,7 +108,15 @@ export function registerSocketHandlers(io) {
         // Generate TURN credentials for this user
         const iceServers = generateTurnCredentials(userId);
 
-        if (callback) callback({ success: true, iceServers });
+        // Check if someone in this room is currently screen sharing
+        const screenSharer = activeScreenSharers.get(roomCode) || null;
+
+        if (callback) callback({
+          success: true,
+          iceServers,
+          existingUsers,              // ← included in callback now
+          activeScreenSharer: screenSharer,  // ← so late joiner sees the share
+        });
       } catch (err) {
         console.error('[socket] join-room error:', err.message);
         if (callback) callback({ error: err.message });
@@ -149,6 +163,13 @@ export function registerSocketHandlers(io) {
     socket.on('start-screen-share', () => {
       if (!isRoomMember(socket.id, roomCode)) return;
 
+      // Track active screen sharer for this room
+      activeScreenSharers.set(roomCode, {
+        socketId: socket.id,
+        userId,
+        displayName,
+      });
+
       socket.to(roomCode).emit('start-screen-share', {
         fromSocketId: socket.id,
         fromUserId: userId,
@@ -159,6 +180,12 @@ export function registerSocketHandlers(io) {
     // ── stop-screen-share ─────────────────────────────────────────────────────
     socket.on('stop-screen-share', () => {
       if (!isRoomMember(socket.id, roomCode)) return;
+
+      // Clear active screen sharer (only if it's this socket)
+      const current = activeScreenSharers.get(roomCode);
+      if (current && current.socketId === socket.id) {
+        activeScreenSharers.delete(roomCode);
+      }
 
       socket.to(roomCode).emit('stop-screen-share', {
         fromSocketId: socket.id,
@@ -235,6 +262,16 @@ export function registerSocketHandlers(io) {
       const { roomCode: rc, userId: uid } = memberInfo;
       socketRooms.delete(socket.id);
 
+      // If this user was screen sharing, clear the active sharer
+      const sharer = activeScreenSharers.get(rc);
+      if (sharer && sharer.socketId === socket.id) {
+        activeScreenSharers.delete(rc);
+        // Notify remaining peers that screen share stopped
+        socket.to(rc).emit('stop-screen-share', {
+          fromSocketId: socket.id,
+        });
+      }
+
       // Notify remaining peers
       socket.to(rc).emit('user-left', {
         socketId: socket.id,
@@ -246,6 +283,12 @@ export function registerSocketHandlers(io) {
         await removeUser(rc, uid);
       } catch (err) {
         console.error('[socket] removeUser error:', err.message);
+      }
+
+      // If room is now empty, clean up screen share tracking
+      const remaining = getRoomSockets(rc);
+      if (remaining.length === 0) {
+        activeScreenSharers.delete(rc);
       }
     });
   });

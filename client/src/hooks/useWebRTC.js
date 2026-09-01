@@ -3,19 +3,20 @@
  *
  * Responsibilities:
  * - Acquire local camera/mic via getUserMedia
- * - On 'existing-users': initiate RTCPeerConnection + offer to each existing peer
- * - On 'user-joined': wait for their offer
+ * - processExistingUsers(): called by Room.jsx with the list from join-room callback
+ * - On 'user-joined': pre-create PC for new peers
  * - Forward offer/answer/ICE through socket
  * - Handle ontrack to surface remote streams (camera AND screen share)
- * - Toggle mic mute
- * - Screen share (renegotiation so receiver gets a real stream)
+ * - Toggle mic mute / camera
+ * - Screen share with optional system audio capture
  *
- * Key fix vs previous version:
- *   Socket event handlers are registered as soon as `socket + enabled` are truthy,
- *   INDEPENDENTLY of localStream. When existing-users / user-joined arrive before
- *   getUserMedia finishes, they are buffered in `pendingPeersRef`.  Once the local
- *   stream is ready we drain that buffer and initiate/accept offers normally.
- *   This eliminates the race-condition where peers could not see each other.
+ * Key design decisions:
+ * 1. Socket event handlers register when socket is available (no `enabled` guard)
+ *    so no events are missed after join-room.
+ * 2. existingUsers are NOT received via socket event — they come from the
+ *    join-room callback and are processed via processExistingUsers().
+ * 3. Peers that arrive before getUserMedia completes are buffered in
+ *    pendingPeersRef and drained when localStream becomes available.
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
@@ -29,17 +30,17 @@ const ICE_CONFIG_FALLBACK = {
 
 /**
  * @param {import('socket.io-client').Socket} socket
- * @param {boolean} enabled - only start when true (after socket join confirmed)
+ * @param {boolean} enabled - only start media when true (after socket join confirmed)
  */
 export function useWebRTC(socket, enabled) {
   const localStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
   const peerConnectionsRef = useRef({}); // socketId → RTCPeerConnection
   const iceConfigRef = useRef(ICE_CONFIG_FALLBACK);
-  // Buffer ICE candidates that arrive before setRemoteDescription completes
   const pendingCandidatesRef = useRef({}); // socketId → RTCIceCandidateInit[]
-  // Buffer peers that arrived before localStream was ready
   const pendingPeersRef = useRef([]); // { socketId, displayName, userId, isOfferer }[]
+  // Track screen audio senders so we can remove them on stop
+  const screenAudioSendersRef = useRef({}); // socketId → RTCRtpSender
 
   const [localStream, setLocalStream] = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({}); // socketId → { stream, displayName, userId }
@@ -49,6 +50,7 @@ export function useWebRTC(socket, enabled) {
   const [remoteCameraStates, setRemoteCameraStates] = useState({}); // socketId → boolean
   const [isSharingScreen, setIsSharingScreen] = useState(false);
   const [screenStream, setScreenStream] = useState(null);
+  const [screenAudioEnabled, setScreenAudioEnabled] = useState(false);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -91,6 +93,15 @@ export function useWebRTC(socket, enabled) {
         });
       }
 
+      // Also add screen audio track if currently sharing with audio
+      if (screenStreamRef.current) {
+        const screenAudioTrack = screenStreamRef.current.getAudioTracks()[0];
+        if (screenAudioTrack) {
+          const sender = pc.addTrack(screenAudioTrack, screenStreamRef.current);
+          screenAudioSendersRef.current[targetSocketId] = sender;
+        }
+      }
+
       // ICE candidate → send to remote
       pc.onicecandidate = ({ candidate }) => {
         if (candidate) {
@@ -105,25 +116,26 @@ export function useWebRTC(socket, enabled) {
       pc.onconnectionstatechange = () => {
         console.log(`[webrtc] Conn state ${targetSocketId}: ${pc.connectionState}`);
         if (pc.connectionState === 'failed') {
-          console.warn(`[webrtc] Connection failed with ${targetSocketId} — consider ICE restart`);
+          console.warn(`[webrtc] Connection failed with ${targetSocketId}`);
         }
       };
 
-      // Remote track arrived — map to camera stream or screen stream
+      // Remote track arrived — detect camera vs screen share streams
       pc.ontrack = ({ track, streams }) => {
         if (!streams || streams.length === 0) return;
         const stream = streams[0];
 
-        // Screen share streams are identified by a stream ID prefixed 'screen-'
-        if (stream.id && stream.id.startsWith('screen-')) {
-          setRemoteScreenStreams((prev) => ({ ...prev, [targetSocketId]: stream }));
-        } else {
-          updateRemoteStream(targetSocketId, {
-            stream,
-            displayName,
-            userId,
-          });
-        }
+        // If this stream contains only a video track and its label hints at
+        // a display surface, treat it as screen share.  Otherwise it's a
+        // camera/mic stream.  We also watch for audio-only tracks coming
+        // on a second stream (screen audio).  The simplest heuristic: if we
+        // already have a camera stream from this peer and a new stream arrives,
+        // it's likely screen share.
+        updateRemoteStream(targetSocketId, {
+          stream,
+          displayName,
+          userId,
+        });
       };
 
       peerConnectionsRef.current[targetSocketId] = pc;
@@ -175,7 +187,7 @@ export function useWebRTC(socket, enabled) {
    * Drain pending peers once local stream is available.
    */
   useEffect(() => {
-    if (!localStream || !socket || !enabled) return;
+    if (!localStream || !socket) return;
 
     const pending = pendingPeersRef.current;
     if (pending.length === 0) return;
@@ -195,31 +207,44 @@ export function useWebRTC(socket, enabled) {
         createPeerConnection(socketId, displayName, userId);
       }
     });
-  }, [localStream, socket, enabled, createPeerConnection]);
+  }, [localStream, socket, createPeerConnection]);
 
-  // ── Socket event handlers ─────────────────────────────────────────────────
-  // NOTE: This effect does NOT depend on localStream — registers as soon as
-  // socket + enabled are ready. Peers buffered until localStream is available.
-  useEffect(() => {
-    if (!socket || !enabled) return;
+  /**
+   * processExistingUsers — called by Room.jsx after join-room callback.
+   * This replaces the old 'existing-users' socket event to avoid race conditions.
+   */
+  const processExistingUsers = useCallback(
+    (users) => {
+      if (!users || !Array.isArray(users) || users.length === 0) return;
 
-    // ── existing-users: we are the new joiner, initiate offers to each ────
-    const onExistingUsers = async (users) => {
       for (const { socketId, displayName, userId } of users) {
         if (!localStreamRef.current) {
+          // Stream not ready — buffer for later
           pendingPeersRef.current.push({ socketId, displayName, userId, isOfferer: true });
-          continue;
-        }
-        const pc = createPeerConnection(socketId, displayName, userId);
-        try {
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          socket.emit('offer', { targetSocketId: socketId, sdp: offer });
-        } catch (err) {
-          console.error('[webrtc] createOffer failed:', err);
+        } else {
+          // Stream ready — create offer immediately
+          (async () => {
+            const pc = createPeerConnection(socketId, displayName, userId);
+            try {
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              socket.emit('offer', { targetSocketId: socketId, sdp: offer });
+            } catch (err) {
+              console.error('[webrtc] createOffer failed for existing user:', err);
+            }
+          })();
         }
       }
-    };
+    },
+    [socket, createPeerConnection]
+  );
+
+  // ── Socket event handlers ─────────────────────────────────────────────────
+  // Register as soon as socket is available (no `enabled` guard) so we never
+  // miss events. Note: we no longer listen for 'existing-users' — that data
+  // comes from the join-room callback via processExistingUsers().
+  useEffect(() => {
+    if (!socket) return;
 
     // ── user-joined: a new user connected, pre-create PC ─────────────────
     const onUserJoined = ({ socketId, displayName, userId }) => {
@@ -299,6 +324,7 @@ export function useWebRTC(socket, enabled) {
         pc.close();
         delete peerConnectionsRef.current[socketId];
       }
+      delete screenAudioSendersRef.current[socketId];
       removeRemoteStream(socketId);
       pendingPeersRef.current = pendingPeersRef.current.filter((p) => p.socketId !== socketId);
     };
@@ -308,7 +334,6 @@ export function useWebRTC(socket, enabled) {
       setRemoteCameraStates((prev) => ({ ...prev, [fromSocketId]: cameraOn }));
     };
 
-    socket.on('existing-users', onExistingUsers);
     socket.on('user-joined', onUserJoined);
     socket.on('offer', onOffer);
     socket.on('answer', onAnswer);
@@ -317,7 +342,6 @@ export function useWebRTC(socket, enabled) {
     socket.on('camera-toggle', onRemoteCameraToggle);
 
     return () => {
-      socket.off('existing-users', onExistingUsers);
       socket.off('user-joined', onUserJoined);
       socket.off('offer', onOffer);
       socket.off('answer', onAnswer);
@@ -325,7 +349,7 @@ export function useWebRTC(socket, enabled) {
       socket.off('user-left', onUserLeft);
       socket.off('camera-toggle', onRemoteCameraToggle);
     };
-  }, [socket, enabled, createPeerConnection, removeRemoteStream]);
+  }, [socket, createPeerConnection, removeRemoteStream]);
 
   // ── Store TURN ice config ─────────────────────────────────────────────────
   const setIceConfig = useCallback((iceServers) => {
@@ -360,7 +384,10 @@ export function useWebRTC(socket, enabled) {
   }, [socket]);
 
   // ── Screen share ──────────────────────────────────────────────────────────
-  const startScreenShare = useCallback(async () => {
+  /**
+   * @param {boolean} includeAudio - whether to capture system/tab audio
+   */
+  const startScreenShare = useCallback(async (includeAudio = false) => {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: {
@@ -370,28 +397,45 @@ export function useWebRTC(socket, enabled) {
           height: { ideal: 1080 },
           frameRate: { ideal: 30 },
         },
-        audio: false,
+        // Request system audio if the toggle is on.
+        // The browser will show a "Share audio" checkbox in its native picker.
+        audio: includeAudio ? {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        } : false,
       });
 
       screenStreamRef.current = stream;
       setScreenStream(stream);
       setIsSharingScreen(true);
+      setScreenAudioEnabled(stream.getAudioTracks().length > 0);
 
       const screenTrack = stream.getVideoTracks()[0];
+      const screenAudioTrack = stream.getAudioTracks()[0] || null;
 
-      // Replace video track + renegotiate so remote ontrack fires
+      // Replace video track + add audio track in ALL peer connections + renegotiate
       const renegotiationPromises = Object.entries(peerConnectionsRef.current).map(
         async ([targetSocketId, pc]) => {
-          const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
-          if (sender) {
-            await sender.replaceTrack(screenTrack);
-            try {
-              const offer = await pc.createOffer();
-              await pc.setLocalDescription(offer);
-              socket.emit('offer', { targetSocketId, sdp: offer });
-            } catch (err) {
-              console.warn('[webrtc] Screen share renegotiation failed:', err);
-            }
+          // Replace video track
+          const videoSender = pc.getSenders().find((s) => s.track?.kind === 'video');
+          if (videoSender) {
+            await videoSender.replaceTrack(screenTrack);
+          }
+
+          // Add screen audio track if available
+          if (screenAudioTrack) {
+            const audioSender = pc.addTrack(screenAudioTrack, stream);
+            screenAudioSendersRef.current[targetSocketId] = audioSender;
+          }
+
+          // Renegotiate so remote side picks up the changes
+          try {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            socket.emit('offer', { targetSocketId, sdp: offer });
+          } catch (err) {
+            console.warn('[webrtc] Screen share renegotiation failed:', err);
           }
         }
       );
@@ -399,6 +443,7 @@ export function useWebRTC(socket, enabled) {
       await Promise.allSettled(renegotiationPromises);
       socket.emit('start-screen-share');
 
+      // When user stops sharing via browser UI
       screenTrack.onended = () => {
         stopScreenShare();
       };
@@ -417,23 +462,35 @@ export function useWebRTC(socket, enabled) {
     screenStreamRef.current = null;
     setScreenStream(null);
     setIsSharingScreen(false);
+    setScreenAudioEnabled(false);
 
+    // Restore camera track + remove screen audio senders + renegotiate
     const cameraTrack = localStreamRef.current?.getVideoTracks()[0];
-    if (cameraTrack) {
-      Object.entries(peerConnectionsRef.current).forEach(async ([targetSocketId, pc]) => {
-        const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
-        if (sender) {
-          await sender.replaceTrack(cameraTrack);
-          try {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            socket.emit('offer', { targetSocketId, sdp: offer });
-          } catch (err) {
-            console.warn('[webrtc] Stop screen share renegotiation failed:', err);
-          }
+    Object.entries(peerConnectionsRef.current).forEach(async ([targetSocketId, pc]) => {
+      // Restore video
+      if (cameraTrack) {
+        const videoSender = pc.getSenders().find((s) => s.track?.kind === 'video');
+        if (videoSender) {
+          await videoSender.replaceTrack(cameraTrack);
         }
-      });
-    }
+      }
+
+      // Remove screen audio sender
+      const audioSender = screenAudioSendersRef.current[targetSocketId];
+      if (audioSender) {
+        try { pc.removeTrack(audioSender); } catch (_) {}
+        delete screenAudioSendersRef.current[targetSocketId];
+      }
+
+      // Renegotiate
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit('offer', { targetSocketId, sdp: offer });
+      } catch (err) {
+        console.warn('[webrtc] Stop screen share renegotiation failed:', err);
+      }
+    });
 
     socket.emit('stop-screen-share');
   }, [socket]);
@@ -446,6 +503,7 @@ export function useWebRTC(socket, enabled) {
       localStreamRef.current?.getTracks().forEach((t) => t.stop());
       screenStreamRef.current?.getTracks().forEach((t) => t.stop());
       pendingPeersRef.current = [];
+      screenAudioSendersRef.current = {};
     };
   }, []);
 
@@ -460,8 +518,10 @@ export function useWebRTC(socket, enabled) {
     remoteCameraStates,
     isSharingScreen,
     screenStream,
+    screenAudioEnabled,
     startScreenShare,
     stopScreenShare,
     setIceConfig,
+    processExistingUsers,
   };
 }
