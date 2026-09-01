@@ -1,9 +1,11 @@
 /**
  * useVoiceSticker — manages voice sticker sending and receiving.
  *
- * Supports:
- * 1. Text-to-Speech voice stickers with custom pitch modulation (Normal, Chipmunk, Monster, Speedy)
- * 2. Soundboard meme audio presets (/sound/...)
+ * Text-to-Speech voice stickers with distinct custom pitch & speed modulation:
+ * - 🤖 Normal: pitch 1.0, rate 1.0
+ * - 🐿️ Chipmunk: pitch 2.0, rate 1.4 (ultra high-pitch helium/chipmunk voice)
+ * - 👹 Monster: pitch 0.3, rate 0.75 (deep heavy monster voice)
+ * - ⚡ Speedy: pitch 1.2, rate 2.0 (fast speedrun voice)
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
@@ -13,19 +15,10 @@ let stickerIdCounter = 0;
 
 export const VOICE_STYLES = {
   normal:   { label: 'Normal',   icon: '🤖', pitch: 1.0, rate: 1.0 },
-  chipmunk: { label: 'Chipmunk', icon: '🐿️', pitch: 1.6, rate: 1.25 },
-  monster:  { label: 'Monster',  icon: '👹', pitch: 0.5, rate: 0.85 },
-  speedy:   { label: 'Speedy',   icon: '⚡', pitch: 1.1, rate: 1.55 },
+  chipmunk: { label: 'Chipmunk', icon: '🐿️', pitch: 2.0, rate: 1.4 },
+  monster:  { label: 'Monster',  icon: '👹', pitch: 0.3, rate: 0.75 },
+  speedy:   { label: 'Speedy',   icon: '⚡', pitch: 1.2, rate: 2.0 },
 };
-
-export const SOUNDBOARD_PRESETS = [
-  { id: 'applause',   label: 'Applause',   emoji: '👏', soundFile: '/sound/applause-2.mp3' },
-  { id: 'evil-laugh', label: 'Evil Laugh', emoji: '😈', soundFile: '/sound/evil-laugh.mp3' },
-  { id: 'kiss',       label: 'Kiss',       emoji: '💋', soundFile: '/sound/kiss-2.mp3' },
-  { id: 'laugh',      label: 'LOL Laugh',  emoji: '😆', soundFile: '/sound/laugh-2.mp3' },
-  { id: 'wow',        label: 'WOW',        emoji: '😮', soundFile: '/sound/wow-video.mp3' },
-  { id: 'clap',       label: 'Fast Clap',  emoji: '👏', soundFile: '/sound/clap-sound.mp3' },
-];
 
 /**
  * @param {import('socket.io-client').Socket | null} socket
@@ -54,18 +47,13 @@ export function useVoiceSticker(socket) {
       const styleConfig = VOICE_STYLES[voiceStyle] || VOICE_STYLES.normal;
 
       // Speak using Web Speech API with custom pitch & rate modulation
-      if (typeof window !== 'undefined' && window.speechSynthesis) {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         try {
-          window.speechSynthesis.cancel();
+          window.speechSynthesis.cancel(); // cancel any active utterance
           const utterance = new SpeechSynthesisUtterance(text);
           utterance.pitch = styleConfig.pitch;
           utterance.rate = styleConfig.rate;
-          utterance.volume = 0.95;
-
-          // Attempt to pick a natural voice if available
-          const voices = window.speechSynthesis.getVoices();
-          const idVoice = voices.find((v) => v.lang.startsWith('id') || v.lang.startsWith('en'));
-          if (idVoice) utterance.voice = idVoice;
+          utterance.volume = 1.0;
 
           window.speechSynthesis.speak(utterance);
         } catch (err) {
@@ -99,7 +87,6 @@ export function useVoiceSticker(socket) {
     stickers,
     sendVoiceSticker,
     VOICE_STYLES,
-    SOUNDBOARD_PRESETS,
     MAX_CHARS,
   };
 }

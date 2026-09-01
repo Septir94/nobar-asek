@@ -1,10 +1,10 @@
 /**
- * ReactionBar — reaction emoji buttons + soundboard meme presets + voice sticker input with custom pitch.
+ * ReactionBar — reaction emoji buttons + voice sticker input with custom pitch.
  * Sits above the main controls bar.
  */
 
 import { useState } from 'react';
-import { VOICE_STYLES, SOUNDBOARD_PRESETS } from '../hooks/useVoiceSticker';
+import { VOICE_STYLES } from '../hooks/useVoiceSticker';
 import './ReactionBar.css';
 
 const REACTIONS = [
@@ -22,7 +22,6 @@ export default function ReactionBar({
 }) {
   const [stickerText, setStickerText] = useState('');
   const [stickerOpen, setStickerOpen] = useState(false);
-  const [soundboardOpen, setSoundboardOpen] = useState(false);
   const [selectedVoice, setSelectedVoice] = useState('normal');
 
   const handleStickerSubmit = (e) => {
@@ -32,10 +31,6 @@ export default function ReactionBar({
     onSendVoiceSticker(trimmed, selectedVoice);
     setStickerText('');
     setStickerOpen(false);
-  };
-
-  const handleSoundboardClick = (preset) => {
-    onSendReaction(preset.id);
   };
 
   return (
@@ -58,60 +53,11 @@ export default function ReactionBar({
 
       <div className="reaction-bar__divider" />
 
-      {/* Soundboard Memes toggle */}
-      <div className="reaction-bar__soundboard">
-        <button
-          className={`reaction-btn reaction-btn--soundboard ${soundboardOpen ? 'reaction-btn--active' : ''}`}
-          onClick={() => {
-            setSoundboardOpen((v) => !v);
-            if (!soundboardOpen) setStickerOpen(false);
-          }}
-          title="Meme Soundboard"
-          aria-label="Toggle Soundboard"
-          type="button"
-        >
-          🔊
-        </button>
-
-        {soundboardOpen && (
-          <div className="soundboard-popup">
-            <div className="soundboard-popup__header">
-              <span>🔊 Meme Soundboard</span>
-              <button
-                className="soundboard-popup__close"
-                onClick={() => setSoundboardOpen(false)}
-                type="button"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="soundboard-grid">
-              {SOUNDBOARD_PRESETS.map((preset) => (
-                <button
-                  key={preset.id}
-                  className="soundboard-btn"
-                  onClick={() => handleSoundboardClick(preset)}
-                  type="button"
-                >
-                  <span className="soundboard-btn__emoji">{preset.emoji}</span>
-                  <span className="soundboard-btn__label">{preset.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="reaction-bar__divider" />
-
       {/* Voice sticker toggle with custom pitch */}
       <div className="reaction-bar__sticker">
         <button
           className={`reaction-btn reaction-btn--sticker ${stickerOpen ? 'reaction-btn--active' : ''}`}
-          onClick={() => {
-            setStickerOpen((v) => !v);
-            if (!stickerOpen) setSoundboardOpen(false);
-          }}
+          onClick={() => setStickerOpen((v) => !v)}
           title="Voice Sticker (TTS)"
           aria-label="Open voice sticker"
           type="button"

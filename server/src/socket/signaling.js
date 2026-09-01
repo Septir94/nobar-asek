@@ -207,7 +207,7 @@ export function registerSocketHandlers(io) {
     });
 
     // ── send-reaction ───────────────────────────────────────────────────────
-    const ALLOWED_REACTIONS = new Set(['clap', 'wow', 'laugh', 'heart', 'fire', 'applause', 'evil-laugh', 'kiss']);
+    const ALLOWED_REACTIONS = new Set(['clap', 'wow', 'laugh', 'heart', 'fire']);
     socket.on('send-reaction', ({ type }) => {
       if (!isRoomMember(socket.id, roomCode)) return;
       if (!ALLOWED_REACTIONS.has(type)) return;
