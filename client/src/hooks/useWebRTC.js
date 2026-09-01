@@ -6,7 +6,7 @@
  * - Maintain unified remote MediaStreams per peer containing video + all audio tracks
  * - Handle screen sharing (video replaceTrack + screen audio addTrack + renegotiation)
  * - Provide host preview of the screen stream
- * - Process existing users from join-room callback without race conditions
+ * - Process existing users from socket event AND join-room callback safely without race conditions
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
@@ -68,7 +68,7 @@ export function useWebRTC(socket, enabled) {
   const createPeerConnection = useCallback(
     (targetSocketId, displayName, userId) => {
       if (peerConnectionsRef.current[targetSocketId]) {
-        peerConnectionsRef.current[targetSocketId].close();
+        return peerConnectionsRef.current[targetSocketId];
       }
 
       const pc = new RTCPeerConnection(iceConfigRef.current);
@@ -133,7 +133,6 @@ export function useWebRTC(socket, enabled) {
         const currentTracks = pStream.getTracks();
         if (!currentTracks.some((t) => t.id === track.id)) {
           if (track.kind === 'video') {
-            // Remove old/previous video tracks so we only have 1 active video track
             pStream.getVideoTracks().forEach((oldTrack) => {
               if (oldTrack.id !== track.id) {
                 pStream.removeTrack(oldTrack);
@@ -204,11 +203,31 @@ export function useWebRTC(socket, enabled) {
   }, [enabled]);
 
   /**
-   * Drain pending peers once local stream is available.
+   * Drain pending peers once local stream is available & attach tracks to any existing PCs.
    */
   useEffect(() => {
     if (!localStream || !socket) return;
 
+    // 1. Attach local tracks to any existing peer connections created before localStream was ready
+    Object.entries(peerConnectionsRef.current).forEach(([targetSocketId, pc]) => {
+      const senders = pc.getSenders();
+      const hasVideo = senders.some((s) => s.track?.kind === 'video');
+      const hasAudio = senders.some((s) => s.track?.kind === 'audio');
+
+      const videoTrack = screenStreamRef.current
+        ? screenStreamRef.current.getVideoTracks()[0]
+        : localStream.getVideoTracks()[0];
+      const audioTrack = localStream.getAudioTracks()[0];
+
+      if (!hasAudio && audioTrack) {
+        pc.addTrack(audioTrack, localStream);
+      }
+      if (!hasVideo && videoTrack) {
+        pc.addTrack(videoTrack, localStream);
+      }
+    });
+
+    // 2. Drain pending peers
     const pending = pendingPeersRef.current;
     if (pending.length === 0) return;
     pendingPeersRef.current = [];
@@ -230,15 +249,21 @@ export function useWebRTC(socket, enabled) {
   }, [localStream, socket, createPeerConnection]);
 
   /**
-   * processExistingUsers — called by Room.jsx after join-room callback.
+   * processExistingUsers — handles list of existing room members.
    */
   const processExistingUsers = useCallback(
     (users) => {
       if (!users || !Array.isArray(users) || users.length === 0) return;
 
       for (const { socketId, displayName, userId } of users) {
+        if (peerConnectionsRef.current[socketId]) {
+          continue; // already connected or connecting
+        }
+
         if (!localStreamRef.current) {
-          pendingPeersRef.current.push({ socketId, displayName, userId, isOfferer: true });
+          if (!pendingPeersRef.current.some((p) => p.socketId === socketId)) {
+            pendingPeersRef.current.push({ socketId, displayName, userId, isOfferer: true });
+          }
         } else {
           (async () => {
             const pc = createPeerConnection(socketId, displayName, userId);
@@ -260,10 +285,21 @@ export function useWebRTC(socket, enabled) {
   useEffect(() => {
     if (!socket) return;
 
+    // ── existing-users event: joiner initiates offers ──────────────────────
+    const onExistingUsers = (users) => {
+      console.log('[webrtc] Socket on existing-users:', users);
+      processExistingUsers(users);
+    };
+
     // ── user-joined: a new user connected, pre-create PC ─────────────────
     const onUserJoined = ({ socketId, displayName, userId }) => {
+      console.log('[webrtc] User joined:', socketId, displayName);
+      if (peerConnectionsRef.current[socketId]) return;
+
       if (!localStreamRef.current) {
-        pendingPeersRef.current.push({ socketId, displayName, userId, isOfferer: false });
+        if (!pendingPeersRef.current.some((p) => p.socketId === socketId)) {
+          pendingPeersRef.current.push({ socketId, displayName, userId, isOfferer: false });
+        }
         return;
       }
       createPeerConnection(socketId, displayName, userId);
@@ -273,14 +309,6 @@ export function useWebRTC(socket, enabled) {
     const onOffer = async ({ fromSocketId, fromDisplayName, fromUserId, sdp }) => {
       let pc = peerConnectionsRef.current[fromSocketId];
       if (!pc) {
-        if (!localStreamRef.current) {
-          console.warn('[webrtc] Offer received before local stream — delaying 2s');
-          await new Promise((r) => setTimeout(r, 2000));
-          if (!localStreamRef.current) {
-            console.error('[webrtc] Stream still not ready — dropping offer from', fromSocketId);
-            return;
-          }
-        }
         pc = createPeerConnection(fromSocketId, fromDisplayName, fromUserId);
       }
       try {
@@ -348,6 +376,7 @@ export function useWebRTC(socket, enabled) {
       setRemoteCameraStates((prev) => ({ ...prev, [fromSocketId]: cameraOn }));
     };
 
+    socket.on('existing-users', onExistingUsers);
     socket.on('user-joined', onUserJoined);
     socket.on('offer', onOffer);
     socket.on('answer', onAnswer);
@@ -356,6 +385,7 @@ export function useWebRTC(socket, enabled) {
     socket.on('camera-toggle', onRemoteCameraToggle);
 
     return () => {
+      socket.off('existing-users', onExistingUsers);
       socket.off('user-joined', onUserJoined);
       socket.off('offer', onOffer);
       socket.off('answer', onAnswer);
@@ -363,7 +393,7 @@ export function useWebRTC(socket, enabled) {
       socket.off('user-left', onUserLeft);
       socket.off('camera-toggle', onRemoteCameraToggle);
     };
-  }, [socket, createPeerConnection, removeRemoteStream]);
+  }, [socket, createPeerConnection, processExistingUsers, removeRemoteStream]);
 
   // ── Store TURN ice config ─────────────────────────────────────────────────
   const setIceConfig = useCallback((iceServers) => {

@@ -79,9 +79,6 @@ export function registerSocketHandlers(io) {
 
     // ── join-room ──────────────────────────────────────────────────────────────
     // Client emits this immediately after connecting.
-    // IMPORTANT: existingUsers are returned IN THE CALLBACK (not as a separate
-    // event) so the client can process them synchronously after setting up
-    // event handlers — preventing the race condition where the event was missed.
     socket.on('join-room', async (_, callback) => {
       try {
         // Re-validate room still exists and has capacity
@@ -98,25 +95,31 @@ export function registerSocketHandlers(io) {
           .filter((m) => m.socketId !== socket.id)
           .map((m) => ({ socketId: m.socketId, userId: m.userId, displayName: m.displayName }));
 
-        // Broadcast to others that a new user joined
+        // 1. Emit existing-users event directly to the joiner
+        socket.emit('existing-users', existingUsers);
+
+        // 2. Broadcast to others in the room that a new user joined
         socket.to(roomCode).emit('user-joined', {
           socketId: socket.id,
           userId,
           displayName,
         });
 
-        // Generate TURN credentials for this user
+        // 3. Generate TURN credentials for this user
         const iceServers = generateTurnCredentials(userId);
 
-        // Check if someone in this room is currently screen sharing
+        // 4. Check if someone in this room is currently screen sharing
         const screenSharer = activeScreenSharers.get(roomCode) || null;
 
-        if (callback) callback({
-          success: true,
-          iceServers,
-          existingUsers,              // ← included in callback now
-          activeScreenSharer: screenSharer,  // ← so late joiner sees the share
-        });
+        // 5. Also send data in callback for instant synchronous access
+        if (callback) {
+          callback({
+            success: true,
+            iceServers,
+            existingUsers,
+            activeScreenSharer: screenSharer,
+          });
+        }
       } catch (err) {
         console.error('[socket] join-room error:', err.message);
         if (callback) callback({ error: err.message });
@@ -252,7 +255,7 @@ export function registerSocketHandlers(io) {
       });
     });
 
-    // ── disconnect ────────────────────────────────────────────────────────────
+    // ── disconnect ────────────────────────────────────────────────────
     socket.on('disconnect', async (reason) => {
       console.log(`[socket] Disconnected: ${socket.id} (${reason})`);
 
