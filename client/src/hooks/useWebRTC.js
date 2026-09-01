@@ -451,16 +451,59 @@ export function useWebRTC(socket, enabled) {
     setMicEnabled(audioTrack.enabled);
   }, []);
 
-  // ── Toggle camera ─────────────────────────────────────────────────────────
-  const toggleCamera = useCallback(() => {
-    if (!localStreamRef.current) return;
-    const videoTrack = localStreamRef.current.getVideoTracks()[0];
-    if (!videoTrack) return;
-    videoTrack.enabled = !videoTrack.enabled;
-    const newState = videoTrack.enabled;
-    setCameraEnabled(newState);
-    if (socket) socket.emit('camera-toggle', { cameraOn: newState });
-  }, [socket]);
+  // ── Toggle camera (Physically releases hardware and turns off webcam light) ─
+  const toggleCamera = useCallback(async () => {
+    if (cameraEnabled) {
+      // Turn OFF: physically stop the camera hardware track so webcam light turns off
+      if (localStreamRef.current) {
+        const videoTrack = localStreamRef.current.getVideoTracks()[0];
+        if (videoTrack) {
+          videoTrack.stop(); // Releases hardware & turns off webcam light
+          localStreamRef.current.removeTrack(videoTrack);
+        }
+      }
+      setCameraEnabled(false);
+      if (socket) socket.emit('camera-toggle', { cameraOn: false });
+    } else {
+      // Turn ON: request a new camera stream from the browser
+      try {
+        let newVideoStream;
+        try {
+          newVideoStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+          });
+        } catch (_) {
+          newVideoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        }
+
+        const newVideoTrack = newVideoStream.getVideoTracks()[0];
+        if (newVideoTrack) {
+          if (!localStreamRef.current) {
+            localStreamRef.current = new MediaStream();
+          }
+          localStreamRef.current.addTrack(newVideoTrack);
+          setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+
+          // If not currently sharing screen, update video sender on all peer connections
+          if (!screenStreamRef.current) {
+            Object.values(peerConnectionsRef.current).forEach(async (pc) => {
+              const videoSender = pc.getSenders().find((s) => s.track?.kind === 'video');
+              if (videoSender) {
+                await videoSender.replaceTrack(newVideoTrack);
+              } else {
+                pc.addTrack(newVideoTrack, localStreamRef.current);
+              }
+            });
+          }
+        }
+
+        setCameraEnabled(true);
+        if (socket) socket.emit('camera-toggle', { cameraOn: true });
+      } catch (err) {
+        console.error('[webrtc] Failed to re-enable camera:', err);
+      }
+    }
+  }, [cameraEnabled, socket]);
 
   // ── Stop Screen share ─────────────────────────────────────────────────────
   const stopScreenShare = useCallback(() => {
