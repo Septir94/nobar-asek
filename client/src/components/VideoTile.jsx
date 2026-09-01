@@ -1,6 +1,7 @@
 /**
  * VideoTile — renders a single video element bound to a MediaStream.
  * When `cameraOn` is false, shows an avatar/initials placeholder overlay.
+ * Handles mobile autoplay unlocking and playsInline attributes.
  */
 
 import { useEffect, useRef } from 'react';
@@ -27,8 +28,23 @@ export default function VideoTile({
   const videoRef = useRef(null);
 
   useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
+    const el = videoRef.current;
+    if (!el) return;
+
+    if (stream) {
+      el.srcObject = stream;
+      el.play().catch((err) => {
+        // Unlock on mobile touch if blocked by autoplay policy
+        const unlock = () => {
+          el.play().catch(() => {});
+          window.removeEventListener('touchstart', unlock);
+          window.removeEventListener('click', unlock);
+        };
+        window.addEventListener('touchstart', unlock, { once: true });
+        window.addEventListener('click', unlock, { once: true });
+      });
+    } else {
+      el.srcObject = null;
     }
   }, [stream]);
 
@@ -40,6 +56,7 @@ export default function VideoTile({
         ref={videoRef}
         autoPlay
         playsInline
+        webkit-playsinline="true"
         muted={muted}
         className="video-tile__video"
       />

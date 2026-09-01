@@ -3,18 +3,21 @@
  *
  * Listens for 'reaction' socket events.
  * Plays audio matched to the reaction type:
- *   - 'clap'  → realistic hand-clapping sound using Web Audio noise burst + BiquadFilter
- *   - others  → short synthesized tone via oscillator
+ *   - 'clap'   → /sound/clap-sound.mp3 (custom sound)
+ *   - 'laugh'  → /sound/evil-laugh.mp3 (custom sound)
+ *   - 'wow'    → synthesized tone
+ *   - 'heart'  → synthesized tone
+ *   - 'fire'   → synthesized tone
  * Spawns floating emoji particles that auto-remove after the animation ends.
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 
-// Reaction definitions: emoji + synthesizer params (used for non-clap reactions)
+// Reaction definitions
 const REACTION_DEFS = {
-  clap:  { emoji: '👏' }, // sound handled separately by playClappingSound()
+  clap:  { emoji: '👏', soundFile: '/sound/clap-sound.mp3' },
+  laugh: { emoji: '😂', soundFile: '/sound/evil-laugh.mp3' },
   wow:   { emoji: '😮', freq: 600,  type: 'sine',     duration: 0.28, repeats: 1 },
-  laugh: { emoji: '😂', freq: 700,  type: 'triangle', duration: 0.10, repeats: 5 },
   heart: { emoji: '❤️', freq: 440,  type: 'sine',     duration: 0.40, repeats: 1 },
   fire:  { emoji: '🔥', freq: 320,  type: 'sawtooth', duration: 0.08, repeats: 4 },
 };
@@ -29,127 +32,67 @@ function getAudioCtx() {
 }
 
 /**
- * Realistic hand-clapping sound using white noise + amplitude envelope.
- *
- * A real clap is a transient broadband noise burst shaped by a sharp attack
- * and fast exponential decay. We replicate this with:
- *   1. A noise buffer (white noise)
- *   2. A bandpass filter (1.8kHz) to colour it like skin-on-skin impact
- *   3. A sharp-attack / fast-decay gain envelope per clap hit
- *   4. A small convolver "room" reverb using a secondary noise tail
- *
- * @param {number} [hits=3] — number of individual clap hits
- * @param {number} [startOffset=0] — Web Audio time offset in seconds
+ * Play an audio file from /sound/
+ * @param {string} url
  */
-function playClappingSound(hits = 3, startOffset = 0) {
+function playAudioFile(url) {
   try {
-    const ctx = getAudioCtx();
-    if (ctx.state === 'suspended') ctx.resume();
-
-    const sampleRate = ctx.sampleRate;
-    const masterGain = ctx.createGain();
-    masterGain.gain.value = 0.55;
-    masterGain.connect(ctx.destination);
-
-    // Small reverb tail: random noise buffer convolved as impulse response
-    const irLength = Math.floor(sampleRate * 0.15); // 150ms reverb tail
-    const irBuffer = ctx.createBuffer(1, irLength, sampleRate);
-    const irData = irBuffer.getChannelData(0);
-    for (let i = 0; i < irLength; i++) {
-      irData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / irLength, 3);
-    }
-    const convolver = ctx.createConvolver();
-    convolver.buffer = irBuffer;
-    convolver.connect(masterGain);
-
-    const spacing = 0.14; // seconds between hits (natural clap rhythm ~140ms)
-
-    for (let hit = 0; hit < hits; hit++) {
-      const t = ctx.currentTime + startOffset + hit * spacing;
-
-      // ── Noise source ──────────────────────────────────────────────────────
-      const noiseLength = Math.floor(sampleRate * 0.08); // 80ms of noise per hit
-      const noiseBuffer = ctx.createBuffer(1, noiseLength, sampleRate);
-      const noiseData = noiseBuffer.getChannelData(0);
-      for (let i = 0; i < noiseLength; i++) {
-        noiseData[i] = Math.random() * 2 - 1;
-      }
-
-      const source = ctx.createBufferSource();
-      source.buffer = noiseBuffer;
-
-      // ── Bandpass filter — shape the noise to sound like flesh/skin ────────
-      const bpf = ctx.createBiquadFilter();
-      bpf.type = 'bandpass';
-      bpf.frequency.value = 1800;
-      bpf.Q.value = 0.9;
-
-      // High-pass filter for the snap
-      const hpf = ctx.createBiquadFilter();
-      hpf.type = 'highpass';
-      hpf.frequency.value = 900;
-
-      // ── Envelope ────────────────────────────────────────────────────────────
-      const env = ctx.createGain();
-      env.gain.setValueAtTime(0, t);
-      env.gain.linearRampToValueAtTime(1.0, t + 0.002);       // 2ms attack
-      env.gain.exponentialRampToValueAtTime(0.3, t + 0.02);   // quick decay
-      env.gain.exponentialRampToValueAtTime(0.001, t + 0.075); // tail off
-
-      // ── Routing: source → bpf → hpf → envelope → dry + reverb ────────────
-      source.connect(bpf);
-      bpf.connect(hpf);
-      hpf.connect(env);
-      env.connect(masterGain);   // dry signal
-      env.connect(convolver);    // wet/reverb signal
-
-      source.start(t);
-      source.stop(t + 0.09);
+    const audio = new Audio(url);
+    audio.volume = 0.8;
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+      playPromise.catch((err) => {
+        console.warn('[reactions] Audio file play error:', err);
+      });
     }
   } catch (err) {
-    console.warn('[reactions] clap audio error:', err);
+    console.warn('[reactions] playAudioFile error:', err);
   }
 }
 
 /**
- * Play a short synthesized sound for non-clap reactions.
+ * Play sound for a reaction (custom audio file or synthesized tone)
  */
 function playReactionSound(type) {
-  if (type === 'clap') {
-    playClappingSound(3, 0);
+  const def = REACTION_DEFS[type];
+  if (!def) return;
+
+  // Custom audio files for clap and laugh
+  if (def.soundFile) {
+    playAudioFile(def.soundFile);
     return;
   }
 
-  const def = REACTION_DEFS[type];
-  if (!def || !def.freq) return;
+  // Synthesizer for other reactions
+  if (def.freq) {
+    const { freq, type: oscType, duration, repeats } = def;
 
-  const { freq, type: oscType, duration, repeats } = def;
+    try {
+      const ctx = getAudioCtx();
+      if (ctx.state === 'suspended') ctx.resume();
 
-  try {
-    const ctx = getAudioCtx();
-    if (ctx.state === 'suspended') ctx.resume();
+      const interval = duration * 1.5;
 
-    const interval = duration * 1.5;
+      for (let i = 0; i < repeats; i++) {
+        const startAt = ctx.currentTime + i * interval;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
 
-    for (let i = 0; i < repeats; i++) {
-      const startAt = ctx.currentTime + i * interval;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
+        osc.type = oscType;
+        osc.frequency.setValueAtTime(freq, startAt);
+        osc.frequency.exponentialRampToValueAtTime(freq * 0.7, startAt + duration);
 
-      osc.type = oscType;
-      osc.frequency.setValueAtTime(freq, startAt);
-      osc.frequency.exponentialRampToValueAtTime(freq * 0.7, startAt + duration);
+        gain.gain.setValueAtTime(0.18, startAt);
+        gain.gain.exponentialRampToValueAtTime(0.001, startAt + duration);
 
-      gain.gain.setValueAtTime(0.18, startAt);
-      gain.gain.exponentialRampToValueAtTime(0.001, startAt + duration);
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(startAt);
-      osc.stop(startAt + duration + 0.01);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(startAt);
+        osc.stop(startAt + duration + 0.01);
+      }
+    } catch (err) {
+      console.warn('[reactions] audio error:', err);
     }
-  } catch (err) {
-    console.warn('[reactions] audio error:', err);
   }
 }
 

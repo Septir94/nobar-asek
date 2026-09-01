@@ -2,11 +2,12 @@
  * useWebRTC — custom hook managing the full WebRTC mesh lifecycle.
  *
  * Responsibilities:
- * - Acquire local camera/mic via getUserMedia
+ * - Acquire local camera/mic via getUserMedia with graceful mobile multi-stage fallback
  * - Maintain unified remote MediaStreams per peer containing video + all audio tracks
  * - Handle screen sharing (video replaceTrack + screen audio addTrack + renegotiation)
  * - Provide host preview of the screen stream
  * - Process existing users from socket event AND join-room callback safely without race conditions
+ * - Never drop offers when localStream is starting up
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
@@ -133,6 +134,7 @@ export function useWebRTC(socket, enabled) {
         const currentTracks = pStream.getTracks();
         if (!currentTracks.some((t) => t.id === track.id)) {
           if (track.kind === 'video') {
+            // Remove old/previous video tracks so we only have 1 active video track
             pStream.getVideoTracks().forEach((oldTrack) => {
               if (oldTrack.id !== track.id) {
                 pStream.removeTrack(oldTrack);
@@ -163,13 +165,14 @@ export function useWebRTC(socket, enabled) {
     [socket, updateRemoteStream]
   );
 
-  // ── Init local media ──────────────────────────────────────────────────────
+  // ── Init local media with multi-stage mobile fallback ─────────────────────
   useEffect(() => {
     if (!enabled) return;
 
     let cancelled = false;
 
     async function initMedia() {
+      // Stage 1: Try ideal 720p facingMode user
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
@@ -181,17 +184,43 @@ export function useWebRTC(socket, enabled) {
         }
         localStreamRef.current = stream;
         setLocalStream(stream);
+        return;
       } catch (err) {
-        console.error('[webrtc] getUserMedia failed:', err);
-        // Try audio-only fallback
-        try {
-          const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-          if (cancelled) { audioOnly.getTracks().forEach((t) => t.stop()); return; }
-          localStreamRef.current = audioOnly;
-          setLocalStream(audioOnly);
-        } catch (audioErr) {
-          console.error('[webrtc] Audio-only fallback also failed:', audioErr);
+        console.warn('[webrtc] getUserMedia high-res failed, trying basic video+audio:', err);
+      }
+
+      // Stage 2: Try basic unconstrained video + audio (fixes mobile orientation/constraint errors)
+      try {
+        const basicStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true,
+        });
+        if (cancelled) {
+          basicStream.getTracks().forEach((t) => t.stop());
+          return;
         }
+        localStreamRef.current = basicStream;
+        setLocalStream(basicStream);
+        return;
+      } catch (basicErr) {
+        console.warn('[webrtc] Basic video+audio failed, trying audio only:', basicErr);
+      }
+
+      // Stage 3: Try audio-only fallback
+      try {
+        const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        if (cancelled) {
+          audioOnly.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        localStreamRef.current = audioOnly;
+        setLocalStream(audioOnly);
+      } catch (audioErr) {
+        console.error('[webrtc] All getUserMedia fallbacks failed (permissions denied or no devices):', audioErr);
+        // Provide empty stream placeholder so peer can still join and watch others
+        const emptyStream = new MediaStream();
+        localStreamRef.current = emptyStream;
+        setLocalStream(emptyStream);
       }
     }
 
@@ -305,7 +334,7 @@ export function useWebRTC(socket, enabled) {
       createPeerConnection(socketId, displayName, userId);
     };
 
-    // ── offer received: answer it ──────────────────────────────────────────
+    // ── offer received: answer immediately (never drop offers!) ─────────────
     const onOffer = async ({ fromSocketId, fromDisplayName, fromUserId, sdp }) => {
       let pc = peerConnectionsRef.current[fromSocketId];
       if (!pc) {
