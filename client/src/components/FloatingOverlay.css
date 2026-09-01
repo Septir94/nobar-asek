@@ -1,0 +1,66 @@
+/* ── Floating overlay — covers full viewport, never blocks clicks ── */
+.floating-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1000;
+  overflow: hidden;
+}
+
+/* ── Emoji particle ───────────────────────────────────────────────── */
+.floating-particle {
+  position: absolute;
+  bottom: 12%;       /* start just above the controls bar */
+  font-size: 2rem;
+  animation: float-up 2.5s ease-out forwards;
+  user-select: none;
+  /* Randomized horizontal wander via CSS custom property set inline */
+  transform-origin: center bottom;
+}
+
+@keyframes float-up {
+  0%   { transform: translateY(0)    scale(1);    opacity: 1; }
+  60%  { transform: translateY(-55vh) scale(1.2); opacity: 0.9; }
+  100% { transform: translateY(-80vh) scale(0.7); opacity: 0; }
+}
+
+/* ── Voice sticker badge ──────────────────────────────────────────── */
+.floating-sticker {
+  position: absolute;
+  bottom: 18%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  animation: sticker-float 4s ease-out forwards;
+  max-width: 240px;
+}
+
+.floating-sticker__name {
+  font-size: 0.6rem;
+  color: rgba(255, 255, 255, 0.5);
+  padding: 0.1rem 0.4rem;
+  background: rgba(0,0,0,0.4);
+  border-radius: 4px;
+}
+
+.floating-sticker__text {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.85), rgba(79, 70, 229, 0.85));
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 0.35rem 0.75rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+@keyframes sticker-float {
+  0%   { transform: translateY(0);     opacity: 0;   }
+  8%   { transform: translateY(-10px); opacity: 1;   }
+  75%  { transform: translateY(-40px); opacity: 1;   }
+  100% { transform: translateY(-70px); opacity: 0;   }
+}

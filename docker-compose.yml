@@ -1,0 +1,91 @@
+services:
+  # ─── Backend ────────────────────────────────────────────────
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-5m}
+      REDIS_URL: redis://redis:6379
+      TURN_SECRET: ${TURN_SECRET}
+      TURN_SERVER: ${TURN_SERVER}
+      TURN_REALM: ${TURN_REALM:-nobar.local}
+      ROOM_TTL_SECONDS: ${ROOM_TTL_SECONDS:-7200}
+      ROOM_MAX_MEMBERS: ${ROOM_MAX_MEMBERS:-4}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - app-net
+    # No port exposure — Caddy proxies internally
+
+  # ─── Frontend (built static, served by Caddy) ───────────────
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - app-net
+
+  # ─── Redis ──────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks:
+      - app-net
+    # ⚠️  NO ports: block — Redis is internal only, never exposed to host
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ─── coturn (TURN server) ───────────────────────────────────
+  coturn:
+    image: coturn/coturn:latest
+    restart: unless-stopped
+    network_mode: host   # TURN requires host networking for UDP/ICE
+    environment:
+      # Pass the shared secret so entrypoint can write turnserver.conf
+      TURN_SECRET: ${TURN_SECRET}
+      TURN_REALM: ${TURN_REALM:-nobar.local}
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    # Ports exposed via host networking:
+    #   3478/tcp+udp  — TURN/STUN
+    #   5349/tcp+udp  — TURN over TLS
+    #   49152-65535/udp — TURN relay UDP range
+
+  # ─── Caddy (reverse proxy + auto HTTPS) ────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3 QUIC
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - app-net
+    depends_on:
+      - server
+      - client
+
+networks:
+  app-net:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:

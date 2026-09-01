@@ -1,0 +1,108 @@
+.video-tile {
+  position: relative;
+  background: #111827;
+  border-radius: 12px;
+  overflow: hidden;
+  aspect-ratio: 16/9;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.video-tile__video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transform: scaleX(-1); /* Mirror local video */
+}
+
+.video-tile--local .video-tile__video {
+  transform: scaleX(-1);
+}
+
+/* Remote videos — no mirror */
+.video-tile:not(.video-tile--local) .video-tile__video {
+  transform: none;
+}
+
+/* ── Camera-off avatar overlay ──────────────────────────────────── */
+.video-tile--cam-off .video-tile__video {
+  opacity: 0; /* Hide video but keep element so stream stays attached */
+}
+
+.video-tile__avatar {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  background: linear-gradient(135deg, #1a1235, #0f172a);
+}
+
+.video-tile__avatar-circle {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #7c3aed, #4f46e5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.02em;
+  box-shadow: 0 0 20px rgba(124, 58, 237, 0.4);
+  flex-shrink: 0;
+}
+
+.video-tile__cam-off-badge {
+  font-size: 0.68rem;
+  color: rgba(255, 255, 255, 0.45);
+  background: rgba(0,0,0,0.35);
+  padding: 0.15rem 0.45rem;
+  border-radius: 99px;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+/* ── Label ────────────────────────────────────────────────────────── */
+.video-tile__label {
+  position: absolute;
+  bottom: 0.5rem;
+  left: 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  max-width: calc(100% - 1.5rem);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.video-tile__you {
+  opacity: 0.65;
+}
+
+.video-tile__cam-indicator {
+  opacity: 0.6;
+  font-size: 0.7rem;
+}
+
+/* ── Thumbnail variant ────────────────────────────────────────────── */
+.video-tile--thumbnail {
+  width: 160px;
+  min-width: 160px;
+  aspect-ratio: 16/9;
+  flex-shrink: 0;
+  border-radius: 8px;
+}
+
+.video-tile--thumbnail .video-tile__avatar-circle {
+  width: 40px;
+  height: 40px;
+  font-size: 1rem;
+}

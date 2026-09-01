@@ -1,0 +1,123 @@
+/* ── Controls bar ─────────────────────────────────────────────────── */
+.room-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1.5rem;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+/* Wrapper for button + hint text */
+.ctrl-btn-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.ctrl-btn__hint {
+  font-size: 0.55rem;
+  color: rgba(255, 255, 255, 0.3);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* ── Base button ──────────────────────────────────────────────────── */
+.ctrl-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.55rem 1rem;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+  min-width: 64px;
+  min-height: 54px;
+}
+
+.ctrl-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  transform: translateY(-1px);
+}
+
+.ctrl-btn:active {
+  transform: translateY(0) scale(0.97);
+}
+
+.ctrl-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.ctrl-btn__icon {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.ctrl-btn__label {
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* Active state (screen share on, chat open) */
+.ctrl-btn--active {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.4);
+  color: #c4b5fd;
+}
+
+/* Danger (muted mic, camera off) */
+.ctrl-btn--danger {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+}
+
+/* Leave button */
+.ctrl-btn--leave {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
+}
+
+.ctrl-btn--leave:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.45);
+}
+
+/* ── Mobile responsive ────────────────────────────────────────────── */
+@media (max-width: 639px) {
+  .room-controls {
+    padding: 0.5rem 0.5rem 0.75rem;   /* extra bottom for safe area */
+    gap: 0.4rem;
+  }
+
+  .ctrl-btn {
+    min-width: 52px;
+    min-height: 52px;      /* 52px > 44px min touch target */
+    padding: 0.5rem 0.6rem;
+    border-radius: 14px;
+    font-size: 0.75rem;
+  }
+
+  .ctrl-btn__label {
+    font-size: 0.58rem;
+  }
+
+  .ctrl-btn__hint {
+    display: none; /* too small on mobile */
+  }
+}
