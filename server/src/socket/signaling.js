@@ -207,7 +207,7 @@ export function registerSocketHandlers(io) {
     });
 
     // ── send-reaction ───────────────────────────────────────────────────────
-    const ALLOWED_REACTIONS = new Set(['clap', 'wow', 'laugh', 'heart', 'fire']);
+    const ALLOWED_REACTIONS = new Set(['clap', 'wow', 'laugh', 'heart', 'fire', 'applause', 'evil-laugh', 'kiss']);
     socket.on('send-reaction', ({ type }) => {
       if (!isRoomMember(socket.id, roomCode)) return;
       if (!ALLOWED_REACTIONS.has(type)) return;
@@ -221,7 +221,7 @@ export function registerSocketHandlers(io) {
     });
 
     // ── send-voice-sticker ───────────────────────────────────────────────────
-    socket.on('send-voice-sticker', ({ text }) => {
+    socket.on('send-voice-sticker', ({ text, voiceStyle }) => {
       if (!isRoomMember(socket.id, roomCode)) return;
       if (typeof text !== 'string') return;
 
@@ -229,11 +229,16 @@ export function registerSocketHandlers(io) {
       const sanitized = text.replace(/[\x00-\x1F\x7F]/g, '').trim().slice(0, 50);
       if (!sanitized) return;
 
+      const validStyle = typeof voiceStyle === 'string' && ['normal', 'chipmunk', 'monster', 'speedy'].includes(voiceStyle)
+        ? voiceStyle
+        : 'normal';
+
       // Broadcast to entire room including sender
       io.to(roomCode).emit('voice-sticker', {
         fromSocketId: socket.id,
         fromDisplayName: displayName,
         text: sanitized,
+        voiceStyle: validStyle,
       });
     });
 

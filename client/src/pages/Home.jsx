@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createRoom, joinRoom } from '../services/api';
+import ThemeModal from '../components/ThemeModal';
 import './Home.css';
 
 export default function Home() {
@@ -11,6 +12,7 @@ export default function Home() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [createdCode, setCreatedCode] = useState('');
+  const [themeModalOpen, setThemeModalOpen] = useState(false);
 
   const handleCreate = async () => {
     if (!displayName.trim()) {
@@ -86,11 +88,23 @@ export default function Home() {
 
   return (
     <div className="home">
+      {/* Top Navbar / Theme Switcher */}
+      <div className="home__top-bar">
+        <button
+          className="home__theme-btn"
+          onClick={() => setThemeModalOpen(true)}
+          title="Change Appearance & Theme"
+          type="button"
+        >
+          🎨 <span className="home__theme-btn-text">Theme</span>
+        </button>
+      </div>
+
       <div className="home__container">
         {/* Header */}
         <div className="home__header">
           <div className="home__logo">
-            <span className="home__logo-icon">🎬</span>
+            <img src="/favicon-2.svg" alt="Nobar Logo" className="home__logo-img" />
             <h1 className="home__title">Nobar</h1>
           </div>
           <p className="home__subtitle">Private video call rooms for you and your friends</p>
@@ -178,6 +192,12 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* Appearance & Theme Modal */}
+      <ThemeModal
+        isOpen={themeModalOpen}
+        onClose={() => setThemeModalOpen(false)}
+      />
     </div>
   );
 }

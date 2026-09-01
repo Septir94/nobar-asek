@@ -5,9 +5,8 @@
   justify-content: center;
   gap: 0.75rem;
   padding: 0.75rem 1.5rem;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(12px);
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-color);
   flex-shrink: 0;
   flex-wrap: wrap;
 }
@@ -22,7 +21,7 @@
 
 .ctrl-btn__hint {
   font-size: 0.55rem;
-  color: rgba(255, 255, 255, 0.3);
+  color: var(--text-muted);
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
@@ -34,10 +33,10 @@
   align-items: center;
   gap: 0.2rem;
   padding: 0.55rem 1rem;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--text-primary);
   cursor: pointer;
   font-family: inherit;
   transition: all 0.2s;
@@ -46,7 +45,7 @@
 }
 
 .ctrl-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--border-color);
   transform: translateY(-1px);
 }
 
@@ -67,35 +66,35 @@
 
 .ctrl-btn__label {
   font-size: 0.65rem;
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
 
 /* Active state (screen share on, chat open) */
 .ctrl-btn--active {
-  background: rgba(139, 92, 246, 0.2);
-  border-color: rgba(139, 92, 246, 0.4);
-  color: #c4b5fd;
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--btn-primary-text);
 }
 
 /* Danger (muted mic, camera off) */
 .ctrl-btn--danger {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.3);
-  color: #fca5a5;
+  background: var(--error-bg);
+  border-color: var(--error-border);
+  color: var(--error-text);
 }
 
 /* Leave button */
 .ctrl-btn--leave {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.25);
-  color: #fca5a5;
+  background: var(--error-bg);
+  border-color: var(--error-border);
+  color: var(--error-text);
 }
 
 .ctrl-btn--leave:hover {
-  background: rgba(239, 68, 68, 0.2);
-  border-color: rgba(239, 68, 68, 0.45);
+  background: var(--error-border);
+  color: #fff;
 }
 
 /* Button group — screen share + audio toggle side by side */
@@ -121,26 +120,26 @@
 
 /* Muted state (audio off) */
 .ctrl-btn--muted {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.4);
+  background: var(--bg-elevated);
+  border-color: var(--border-color);
+  color: var(--text-muted);
 }
 
 .ctrl-btn--muted:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.6);
+  background: var(--border-color);
+  color: var(--text-secondary);
 }
 
 /* ── Mobile responsive ────────────────────────────────────────────── */
 @media (max-width: 639px) {
   .room-controls {
-    padding: 0.5rem 0.5rem 0.75rem;   /* extra bottom for safe area */
+    padding: 0.5rem 0.5rem 0.75rem;
     gap: 0.4rem;
   }
 
   .ctrl-btn {
     min-width: 52px;
-    min-height: 52px;      /* 52px > 44px min touch target */
+    min-height: 52px;
     padding: 0.5rem 0.6rem;
     border-radius: 14px;
     font-size: 0.75rem;
@@ -151,6 +150,6 @@
   }
 
   .ctrl-btn__hint {
-    display: none; /* too small on mobile */
+    display: none;
   }
 }

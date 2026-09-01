@@ -10,9 +10,10 @@
  * - Window-hint screen share with optional system audio
  * - Host live screen share preview with ScreenVideo component
  * - Sound reactions (👏😮😂❤️🔥) with floating particles
- * - Voice sticker (TTS + floating text badge)
+ * - Voice sticker (TTS + floating text badge) with pitch modulation & soundboard presets
  * - Late-joiner screen share sync (server tracks active sharer)
  * - Mobile chat with close button and history back navigation handling
+ * - Appearance & theme switcher (solid colors, no gradients)
  * - Responsive mobile layout
  */
 
@@ -29,6 +30,7 @@ import ChatPanel from '../components/ChatPanel.jsx';
 import RoomControls from '../components/RoomControls.jsx';
 import ReactionBar from '../components/ReactionBar.jsx';
 import FloatingOverlay from '../components/FloatingOverlay.jsx';
+import ThemeModal from '../components/ThemeModal.jsx';
 import './Room.css';
 
 export default function Room() {
@@ -46,6 +48,7 @@ export default function Room() {
   const [chatOpen, setChatOpen] = useState(false);
   const [activeScreenShare, setActiveScreenShare] = useState(null); // { socketId, isLocal? }
   const [includeScreenAudio, setIncludeScreenAudio] = useState(true); // toggle default ON
+  const [themeModalOpen, setThemeModalOpen] = useState(false);
   const screenWrapRef = useRef(null);
 
   // Socket kept in state so hooks re-render when socket is ready
@@ -268,11 +271,19 @@ export default function Room() {
       {/* ── Header ───────────────────────────────────────── */}
       <div className="room__header">
         <div className="room__header-left">
-          <span className="room__logo">🎬</span>
+          <img src="/favicon-2.svg" alt="Nobar Logo" className="room__logo-img" />
           <span className="room__code">{code}</span>
           {isHost && <span className="room__host-badge">Host</span>}
         </div>
         <div className="room__header-right">
+          <button
+            className="room__theme-btn"
+            onClick={() => setThemeModalOpen(true)}
+            title="Appearance Settings"
+            type="button"
+          >
+            🎨 <span className="room__theme-btn-text">Theme</span>
+          </button>
           <span className="room__participant-count">
             👥 {1 + remoteEntries.length}
           </span>
@@ -393,7 +404,7 @@ export default function Room() {
         )}
       </div>
 
-      {/* ── Reaction bar ─────────────────────────────────── */}
+      {/* ── Reaction bar with soundboard & custom voice pitch ── */}
       <ReactionBar
         onSendReaction={sendReaction}
         onSendVoiceSticker={sendVoiceSticker}
@@ -416,6 +427,12 @@ export default function Room() {
         includeScreenAudio={includeScreenAudio}
         onToggleScreenAudio={() => setIncludeScreenAudio((v) => !v)}
         screenAudioEnabled={screenAudioEnabled}
+      />
+
+      {/* ── Appearance & Theme Modal ─────────────────────── */}
+      <ThemeModal
+        isOpen={themeModalOpen}
+        onClose={() => setThemeModalOpen(false)}
       />
     </div>
   );

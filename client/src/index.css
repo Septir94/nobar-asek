@@ -1,5 +1,125 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
+/* ── Theme Definitions (Strictly SOLID colors, no gradients) ──────────────── */
+
+/* 1. Love is in the air (DEFAULT) — #FEDCD3, #D4C4DE, #D14E3A, #955DC2, #F87D5C */
+:root,
+html[data-theme="love-is-in-the-air"] {
+  --bg-base: #1E1222;
+  --bg-surface: #29182E;
+  --bg-elevated: #36203D;
+  --border-color: #52315E;
+  --text-primary: #FEDCD3;
+  --text-secondary: #D4C4DE;
+  --text-muted: #8E7399;
+  --accent-primary: #D14E3A;
+  --accent-secondary: #955DC2;
+  --accent-highlight: #F87D5C;
+  --btn-primary-bg: #D14E3A;
+  --btn-primary-text: #FFFFFF;
+  --btn-secondary-bg: #955DC2;
+  --btn-secondary-text: #FFFFFF;
+  --badge-bg: #F87D5C;
+  --badge-text: #FFFFFF;
+  --error-bg: #D14E3A25;
+  --error-border: #D14E3A;
+  --error-text: #FEDCD3;
+}
+
+/* 2. Brown broom broom — #B99683, #6E3916, #A76F39, #4A2D13, #35261E */
+html[data-theme="brown-broom-broom"] {
+  --bg-base: #1F1510;
+  --bg-surface: #2E1F18;
+  --bg-elevated: #35261E;
+  --border-color: #4A2D13;
+  --text-primary: #FDEDD4;
+  --text-secondary: #B99683;
+  --text-muted: #8C6D5B;
+  --accent-primary: #A76F39;
+  --accent-secondary: #6E3916;
+  --accent-highlight: #B99683;
+  --btn-primary-bg: #A76F39;
+  --btn-primary-text: #FFFFFF;
+  --btn-secondary-bg: #4A2D13;
+  --btn-secondary-text: #FDEDD4;
+  --badge-bg: #6E3916;
+  --badge-text: #FDEDD4;
+  --error-bg: #6E391640;
+  --error-border: #A76F39;
+  --error-text: #FDEDD4;
+}
+
+/* 3. Modern Country — #C1A84C, #E5D0A1, #FDEDD4, #B8C6C9, #334E3D */
+html[data-theme="modern-country"] {
+  --bg-base: #1C2B22;
+  --bg-surface: #25392D;
+  --bg-elevated: #334E3D;
+  --border-color: #476852;
+  --text-primary: #FDEDD4;
+  --text-secondary: #B8C6C9;
+  --text-muted: #889D93;
+  --accent-primary: #C1A84C;
+  --accent-secondary: #E5D0A1;
+  --accent-highlight: #334E3D;
+  --btn-primary-bg: #C1A84C;
+  --btn-primary-text: #1C2B22;
+  --btn-secondary-bg: #334E3D;
+  --btn-secondary-text: #FDEDD4;
+  --badge-bg: #C1A84C;
+  --badge-text: #1C2B22;
+  --error-bg: #991b1b30;
+  --error-border: #ef4444;
+  --error-text: #fca5a5;
+}
+
+/* 4. Classic Dark */
+html[data-theme="dark"] {
+  --bg-base: #0d0d1a;
+  --bg-surface: #16162a;
+  --bg-elevated: #22223d;
+  --border-color: #333355;
+  --text-primary: #ffffff;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --accent-primary: #8b5cf6;
+  --accent-secondary: #6366f1;
+  --accent-highlight: #3b82f6;
+  --btn-primary-bg: #8b5cf6;
+  --btn-primary-text: #ffffff;
+  --btn-secondary-bg: #22223d;
+  --btn-secondary-text: #ffffff;
+  --badge-bg: #8b5cf6;
+  --badge-text: #ffffff;
+  --error-bg: #ef444420;
+  --error-border: #ef4444;
+  --error-text: #fca5a5;
+}
+
+/* 5. Clean Light */
+html[data-theme="light"] {
+  --bg-base: #f1f5f9;
+  --bg-surface: #ffffff;
+  --bg-elevated: #e2e8f0;
+  --border-color: #cbd5e1;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --accent-primary: #6366f1;
+  --accent-secondary: #8b5cf6;
+  --accent-highlight: #0ea5e9;
+  --btn-primary-bg: #6366f1;
+  --btn-primary-text: #ffffff;
+  --btn-secondary-bg: #e2e8f0;
+  --btn-secondary-text: #0f172a;
+  --badge-bg: #6366f1;
+  --badge-text: #ffffff;
+  --error-bg: #fee2e2;
+  --error-border: #ef4444;
+  --error-text: #991b1b;
+}
+
+/* ── Base resets ──────────────────────────────────────────────────────────── */
+
 *,
 *::before,
 *::after {
@@ -16,15 +136,17 @@ html {
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: #0f0c29;
-  color: #fff;
+  background: var(--bg-base);
+  color: var(--text-primary);
   line-height: 1.5;
   overflow-x: hidden;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -32,10 +154,10 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--border-color);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: var(--text-muted);
 }

@@ -17,14 +17,14 @@ export default function FloatingOverlay({ particles = [], stickers = [] }) {
         </span>
       ))}
 
-      {stickers.map(({ id, text, fromDisplayName, x }) => (
+      {stickers.map(({ id, text, fromDisplayName, styleIcon = '📢', x }) => (
         <div
           key={id}
           className="floating-sticker"
           style={{ left: `${x}%` }}
         >
           <span className="floating-sticker__name">{fromDisplayName}</span>
-          <span className="floating-sticker__text">💬 {text}</span>
+          <span className="floating-sticker__text">{styleIcon} {text}</span>
         </div>
       ))}
     </div>
