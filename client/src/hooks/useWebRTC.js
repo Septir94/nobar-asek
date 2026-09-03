@@ -3,12 +3,14 @@
  *
  * Responsibilities:
  * - Acquire local camera/mic via getUserMedia with graceful mobile multi-stage fallback
+ * - Pre-check and track media permission state for UI feedback (blocked / prompt / granted)
  * - Unified audio mixing for screen sharing: combines mic voice + screen audio into a single
  *   synchronized track so late-joining participants hear screen audio immediately upon entry.
  * - Maintain unified remote MediaStreams per peer containing video + all audio tracks
  * - Handle screen sharing (video replaceTrack + audio replaceTrack)
  * - Provide host preview of the screen stream
  * - Process existing users from socket event AND join-room callback safely without race conditions
+ * - ICE restart and renegotiation after late track addition
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
@@ -43,6 +45,14 @@ export function useWebRTC(socket, enabled) {
   const [isSharingScreen, setIsSharingScreen] = useState(false);
   const [screenStream, setScreenStream] = useState(null);
   const [screenAudioEnabled, setScreenAudioEnabled] = useState(false);
+
+  // Media permission tracking for UI feedback
+  // 'checking' | 'granted' | 'denied' | 'prompt' | 'unavailable'
+  const [mediaPermissionState, setMediaPermissionState] = useState('checking');
+  // Specific error reason for denied state
+  const [mediaErrorReason, setMediaErrorReason] = useState(''); // 'blocked' | 'not-found' | 'not-allowed' | 'brave-shield' | ''
+  // Suppress renegotiation during batch track additions
+  const suppressNegotiationRef = useRef(false);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -115,12 +125,40 @@ export function useWebRTC(socket, enabled) {
 
       pc.oniceconnectionstatechange = () => {
         console.log(`[webrtc] ICE state ${targetSocketId}: ${pc.iceConnectionState}`);
+        // ICE restart on failure — attempt to re-establish connectivity
+        if (pc.iceConnectionState === 'failed') {
+          console.warn(`[webrtc] ICE failed with ${targetSocketId}, attempting ICE restart...`);
+          try {
+            pc.restartIce();
+            // After restartIce(), onnegotiationneeded fires automatically
+          } catch (err) {
+            console.error('[webrtc] ICE restart failed:', err);
+          }
+        }
       };
 
       pc.onconnectionstatechange = () => {
         console.log(`[webrtc] Conn state ${targetSocketId}: ${pc.connectionState}`);
         if (pc.connectionState === 'failed') {
-          console.warn(`[webrtc] Connection failed with ${targetSocketId}`);
+          console.warn(`[webrtc] Connection failed with ${targetSocketId}, attempting recovery...`);
+          try {
+            pc.restartIce();
+          } catch (err) {
+            console.error('[webrtc] Recovery restart failed:', err);
+          }
+        }
+      };
+
+      // Renegotiation handler — fires after addTrack, restartIce, etc.
+      pc.onnegotiationneeded = async () => {
+        if (suppressNegotiationRef.current) return;
+        console.log(`[webrtc] Negotiation needed with ${targetSocketId}`);
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          socket.emit('offer', { targetSocketId, sdp: offer });
+        } catch (err) {
+          console.error('[webrtc] Renegotiation offer failed:', err);
         }
       };
 
@@ -175,11 +213,68 @@ export function useWebRTC(socket, enabled) {
     [socket, getActiveAudioTrack, getActiveVideoTrack, updateRemoteStream]
   );
 
+  // ── Pre-check media permissions ────────────────────────────────────────────
+  // Detects blocked/denied status BEFORE getUserMedia so UI can show instructions
+  useEffect(() => {
+    if (!enabled) return;
+
+    async function checkPermissions() {
+      try {
+        // Some browsers (Chrome, Edge) support permissions.query for camera/mic
+        if (navigator.permissions?.query) {
+          const [cam, mic] = await Promise.allSettled([
+            navigator.permissions.query({ name: 'camera' }),
+            navigator.permissions.query({ name: 'microphone' }),
+          ]);
+
+          const camState = cam.status === 'fulfilled' ? cam.value.state : 'prompt';
+          const micState = mic.status === 'fulfilled' ? mic.value.state : 'prompt';
+
+          if (camState === 'denied' && micState === 'denied') {
+            setMediaPermissionState('denied');
+            setMediaErrorReason('blocked');
+            return;
+          }
+          if (camState === 'denied' || micState === 'denied') {
+            // One is denied but the other might work — still try getUserMedia
+            console.warn('[webrtc] Partial permission denial detected (cam:', camState, 'mic:', micState, ')');
+          }
+        }
+      } catch (_) {
+        // permissions.query not supported — fall through to getUserMedia
+      }
+    }
+
+    checkPermissions();
+  }, [enabled]);
+
   // ── Init local media with multi-stage mobile fallback ─────────────────────
   useEffect(() => {
     if (!enabled) return;
 
     let cancelled = false;
+
+    /**
+     * Classify getUserMedia errors for UI feedback.
+     */
+    function classifyMediaError(err) {
+      // Brave browser detection: Brave blocks getUserMedia via Shield
+      const isBrave = navigator.brave?.isBrave || navigator.userAgent.includes('Brave');
+
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        if (isBrave) {
+          return 'brave-shield';
+        }
+        return 'not-allowed';
+      }
+      if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        return 'not-found';
+      }
+      if (err.name === 'NotReadableError' || err.name === 'AbortError') {
+        return 'blocked'; // Another app is using the camera/mic
+      }
+      return 'blocked';
+    }
 
     async function initMedia() {
       // Stage 1: Try ideal 720p facingMode user
@@ -194,6 +289,8 @@ export function useWebRTC(socket, enabled) {
         }
         localStreamRef.current = stream;
         setLocalStream(stream);
+        setMediaPermissionState('granted');
+        setMediaErrorReason('');
         return;
       } catch (err) {
         console.warn('[webrtc] getUserMedia high-res failed, trying basic video+audio:', err);
@@ -211,6 +308,8 @@ export function useWebRTC(socket, enabled) {
         }
         localStreamRef.current = basicStream;
         setLocalStream(basicStream);
+        setMediaPermissionState('granted');
+        setMediaErrorReason('');
         return;
       } catch (basicErr) {
         console.warn('[webrtc] Basic video+audio failed, trying audio only:', basicErr);
@@ -225,8 +324,16 @@ export function useWebRTC(socket, enabled) {
         }
         localStreamRef.current = audioOnly;
         setLocalStream(audioOnly);
+        setMediaPermissionState('granted');
+        setMediaErrorReason('');
       } catch (audioErr) {
         console.error('[webrtc] All getUserMedia fallbacks failed (permissions denied or no devices):', audioErr);
+
+        // Classify the error for specific UI feedback
+        const reason = classifyMediaError(audioErr);
+        setMediaPermissionState('denied');
+        setMediaErrorReason(reason);
+
         const emptyStream = new MediaStream();
         localStreamRef.current = emptyStream;
         setLocalStream(emptyStream);
@@ -242,11 +349,19 @@ export function useWebRTC(socket, enabled) {
 
   /**
    * Drain pending peers once local stream is available & attach tracks to any existing PCs.
+   * CRITICAL FIX: After adding tracks to existing PCs, trigger renegotiation so the remote
+   * side learns about the new tracks. Without this, joining users would have silent/blank feeds.
    */
   useEffect(() => {
     if (!localStream || !socket) return;
 
     // 1. Attach local tracks to any existing peer connections created before localStream was ready
+    //    AND trigger renegotiation for each PC that gets new tracks
+    const pcsNeedingRenegotiation = [];
+
+    // Suppress onnegotiationneeded during batch addTrack to avoid multiple simultaneous offers
+    suppressNegotiationRef.current = true;
+
     Object.entries(peerConnectionsRef.current).forEach(([targetSocketId, pc]) => {
       const senders = pc.getSenders();
       const hasVideo = senders.some((s) => s.track?.kind === 'video');
@@ -255,11 +370,32 @@ export function useWebRTC(socket, enabled) {
       const videoTrack = getActiveVideoTrack();
       const audioTrack = getActiveAudioTrack();
 
+      let added = false;
       if (!hasAudio && audioTrack) {
         pc.addTrack(audioTrack, localStream);
+        added = true;
       }
       if (!hasVideo && videoTrack) {
         pc.addTrack(videoTrack, localStream);
+        added = true;
+      }
+
+      if (added) {
+        pcsNeedingRenegotiation.push({ targetSocketId, pc });
+      }
+    });
+
+    suppressNegotiationRef.current = false;
+
+    // Trigger renegotiation for PCs that received new tracks
+    pcsNeedingRenegotiation.forEach(async ({ targetSocketId, pc }) => {
+      try {
+        console.log(`[webrtc] Renegotiating with ${targetSocketId} after late track add`);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit('offer', { targetSocketId, sdp: offer });
+      } catch (err) {
+        console.error(`[webrtc] Renegotiation failed for ${targetSocketId}:`, err);
       }
     });
 
@@ -660,5 +796,7 @@ export function useWebRTC(socket, enabled) {
     stopScreenShare,
     setIceConfig,
     processExistingUsers,
+    mediaPermissionState,
+    mediaErrorReason,
   };
 }

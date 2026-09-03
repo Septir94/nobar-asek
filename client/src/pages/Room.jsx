@@ -31,6 +31,8 @@ import RoomControls from '../components/RoomControls.jsx';
 import ReactionBar from '../components/ReactionBar.jsx';
 import FloatingOverlay from '../components/FloatingOverlay.jsx';
 import ThemeModal from '../components/ThemeModal.jsx';
+import PermissionGuard from '../components/PermissionGuard.jsx';
+import ScreenShareModal from '../components/ScreenShareModal.jsx';
 import './Room.css';
 
 export default function Room() {
@@ -49,6 +51,7 @@ export default function Room() {
   const [activeScreenShare, setActiveScreenShare] = useState(null); // { socketId, isLocal? }
   const [includeScreenAudio, setIncludeScreenAudio] = useState(true); // toggle default ON
   const [themeModalOpen, setThemeModalOpen] = useState(false);
+  const [screenShareModalOpen, setScreenShareModalOpen] = useState(false);
   const screenWrapRef = useRef(null);
 
   // Socket kept in state so hooks re-render when socket is ready
@@ -152,6 +155,8 @@ export default function Room() {
     stopScreenShare,
     setIceConfig,
     processExistingUsers,
+    mediaPermissionState,
+    mediaErrorReason,
   } = useWebRTC(socket, socketReady);
 
   // Sync refs so the socket effect can call them
@@ -241,10 +246,19 @@ export default function Room() {
     }
   };
 
-  // ── Start screen share with audio toggle ────────────────────────────────
-  const handleStartScreenShare = useCallback(() => {
-    startScreenShare(includeScreenAudio);
-  }, [startScreenShare, includeScreenAudio]);
+  // ── Screen share — open modal first, then start on confirm ──────────────
+  const handleOpenScreenShareModal = useCallback(() => {
+    setScreenShareModalOpen(true);
+  }, []);
+
+  const handleConfirmScreenShare = useCallback((withAudio) => {
+    setScreenShareModalOpen(false);
+    startScreenShare(withAudio);
+  }, [startScreenShare]);
+
+  const handleCloseScreenShareModal = useCallback(() => {
+    setScreenShareModalOpen(false);
+  }, []);
 
   const isScreenShareMode = !!activeScreenShare;
   const remoteEntries = Object.entries(remoteStreams);
@@ -267,6 +281,12 @@ export default function Room() {
     <div className="room">
       {/* Floating emoji reactions + voice sticker badges */}
       <FloatingOverlay particles={particles} stickers={stickers} />
+
+      {/* ── Permission Guard — shows when camera/mic is blocked ── */}
+      <PermissionGuard
+        permissionState={mediaPermissionState}
+        errorReason={mediaErrorReason}
+      />
 
       {/* ── Header ───────────────────────────────────────── */}
       <div className="room__header">
@@ -418,15 +438,22 @@ export default function Room() {
         cameraEnabled={cameraEnabled}
         onToggleCamera={toggleCamera}
         isSharingScreen={isSharingScreen}
-        onStartScreenShare={handleStartScreenShare}
+        onStartScreenShare={handleOpenScreenShareModal}
         onStopScreenShare={stopScreenShare}
         isHost={isHost}
         onLeave={handleLeave}
         chatOpen={chatOpen}
         onToggleChat={handleToggleChat}
-        includeScreenAudio={includeScreenAudio}
-        onToggleScreenAudio={() => setIncludeScreenAudio((v) => !v)}
         screenAudioEnabled={screenAudioEnabled}
+      />
+
+      {/* ── Screen Share Confirmation Modal ───────────────── */}
+      <ScreenShareModal
+        isOpen={screenShareModalOpen}
+        onClose={handleCloseScreenShareModal}
+        onConfirm={handleConfirmScreenShare}
+        includeAudio={includeScreenAudio}
+        onToggleAudio={() => setIncludeScreenAudio((v) => !v)}
       />
 
       {/* ── Appearance & Theme Modal ─────────────────────── */}

@@ -1,0 +1,173 @@
+/* ── Permission Guard Banner ─────────────────────────────────────── */
+.perm-guard {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  display: flex;
+  justify-content: center;
+  padding: 1rem;
+  animation: permSlideDown 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes permSlideDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.perm-guard__card {
+  width: 100%;
+  max-width: 520px;
+  background: var(--bg-surface);
+  border: 1px solid var(--error-border);
+  border-radius: 16px;
+  padding: 1.25rem 1.5rem;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.45),
+    0 0 0 1px var(--error-border),
+    0 0 24px rgba(209, 78, 58, 0.15);
+}
+
+.perm-guard__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.perm-guard__icon {
+  font-size: 1.4rem;
+  flex-shrink: 0;
+}
+
+.perm-guard__title {
+  flex: 1;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--error-text);
+  margin: 0;
+}
+
+.perm-guard__dismiss {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 6px;
+  transition: all 0.15s;
+  line-height: 1;
+}
+
+.perm-guard__dismiss:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.perm-guard__desc {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.75rem;
+  line-height: 1.5;
+}
+
+.perm-guard__steps {
+  margin: 0 0 1rem 0;
+  padding-left: 1.25rem;
+  list-style: decimal;
+}
+
+.perm-guard__step {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  line-height: 1.65;
+  padding: 0.15rem 0;
+}
+
+.perm-guard__step::marker {
+  color: var(--accent-highlight);
+  font-weight: 700;
+}
+
+.perm-guard__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.perm-guard__reload-btn {
+  flex: 1;
+  padding: 0.55rem 1rem;
+  background: var(--btn-primary-bg);
+  border: none;
+  border-radius: 10px;
+  color: var(--btn-primary-text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+
+.perm-guard__reload-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.perm-guard__dismiss-btn {
+  padding: 0.55rem 1rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+
+.perm-guard__dismiss-btn:hover {
+  background: var(--border-color);
+  color: var(--text-primary);
+}
+
+/* ── Mobile responsive ─────────────────────────────────────────── */
+@media (max-width: 639px) {
+  .perm-guard {
+    padding: 0.5rem;
+  }
+
+  .perm-guard__card {
+    padding: 1rem;
+    border-radius: 12px;
+  }
+
+  .perm-guard__title {
+    font-size: 0.85rem;
+  }
+
+  .perm-guard__desc {
+    font-size: 0.78rem;
+  }
+
+  .perm-guard__step {
+    font-size: 0.76rem;
+  }
+
+  .perm-guard__actions {
+    flex-direction: column;
+  }
+
+  .perm-guard__dismiss-btn {
+    text-align: center;
+  }
+}
